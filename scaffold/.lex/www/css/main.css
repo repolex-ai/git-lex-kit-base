@@ -16,7 +16,7 @@
     --link: #0033aa;
     --highlight: #fff7d6;
 
-    --sidebar-w: 220px;
+    --sidebar-w: 170px;
     --sidebar-r-w: 260px;
 }
 
@@ -77,14 +77,14 @@ pre code {
     border-right: 2px solid var(--rule);
     display: flex;
     flex-direction: column;
-    padding: 1.5rem 1.25rem;
+    padding: 1.2rem 1rem;
 }
 
 #sidebar-left .brand {
-    font-size: 1.4rem;
+    font-size: 1.15rem;
     letter-spacing: 0.04em;
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.8rem;
     border-bottom: 1px solid var(--rule-soft);
 }
 
@@ -100,9 +100,9 @@ nav.modes {
 .mode-link {
     color: var(--ink-soft);
     text-decoration: none;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     letter-spacing: 0.02em;
-    padding: 0.5rem 0.6rem;
+    padding: 0.4rem 0.5rem;
     border-left: 3px solid transparent;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
@@ -119,9 +119,28 @@ nav.modes {
 }
 
 .sidebar-footer {
-    padding-top: 1rem;
+    padding-top: 0.8rem;
     border-top: 1px solid var(--rule-soft);
 }
+
+.sync-btn {
+    display: block;
+    width: 100%;
+    margin-top: 0.6rem;
+    padding: 0.35rem 0;
+    background: none;
+    border: 1px solid var(--rule-soft);
+    font-family: inherit;
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.sync-btn:hover { color: var(--ink); border-color: var(--ink); }
+.sync-btn:active { background: var(--bg-soft); }
+.sync-btn.syncing { color: var(--accent); cursor: wait; }
 
 .status {
     font-size: 0.75rem;
@@ -407,7 +426,23 @@ nav.modes {
 }
 
 .activity-row:last-child { border-bottom: none; }
-.activity-row:hover { background: var(--bg-soft); }
+.activity-row:hover { background: var(--bg-soft); cursor: pointer; }
+
+/* Expanded file list shown when clicking an activity row */
+.activity-files {
+    grid-column: 1 / -1;
+    padding: 0.5rem 0 0.2rem;
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+}
+.activity-files a {
+    display: block;
+    padding: 0.15rem 0;
+    color: var(--link);
+    text-decoration: none;
+    cursor: pointer;
+}
+.activity-files a:hover { text-decoration: underline; }
 
 .activity-row .when {
     color: var(--ink-faint);
@@ -783,7 +818,7 @@ nav.modes {
     border-right: 1px solid var(--rule);
     overflow: auto;
     padding: 1.25rem 1.5rem;
-    background: var(--bg-soft);
+    background: var(--bg);
 }
 
 .push-source-header {

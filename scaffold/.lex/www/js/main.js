@@ -178,7 +178,8 @@ async function loadActivity() {
         html += '<div class="section-title">Recent activity</div>';
         html += '<div class="activity-list">';
         recentCommits.forEach(c => {
-            html += '<div class="activity-row">';
+            const filesJson = escapeHtml(JSON.stringify(c.files || []));
+            html += `<div class="activity-row" data-commit="${escapeHtml(c.id)}" data-files="${filesJson}">`;
             html += `<div class="when">${c.when}</div>`;
             html += `<div class="what">${escapeHtml(c.message)}</div>`;
             html += `<div class="changed">${c.changedHint || ''}</div>`;
@@ -191,6 +192,57 @@ async function loadActivity() {
 
     view.innerHTML = html;
     attachTimelineHandlers();
+    attachActivityHandlers(view);
+}
+
+// Click an activity row → toggle a file list underneath. Click a file
+// in the list → open the markdown viewer for that document.
+function attachActivityHandlers(view) {
+    view.querySelectorAll('.activity-row[data-files]').forEach(row => {
+        row.addEventListener('click', (e) => {
+            // Don't toggle if clicking a file link inside the expanded list.
+            if (e.target.closest('.activity-files')) return;
+
+            // Toggle the file list.
+            const existing = row.querySelector('.activity-files');
+            if (existing) { existing.remove(); return; }
+
+            let files;
+            try { files = JSON.parse(row.dataset.files); } catch { return; }
+            if (!files.length) return;
+
+            const div = document.createElement('div');
+            div.className = 'activity-files';
+            files.forEach(f => {
+                const a = document.createElement('a');
+                a.textContent = f;
+                a.dataset.file = f;
+                a.addEventListener('click', (e2) => {
+                    e2.stopPropagation();
+                    // Resolve the file path to an IRI and open the markdown viewer.
+                    openFileByPath(f);
+                });
+                div.appendChild(a);
+            });
+            row.appendChild(div);
+        });
+    });
+}
+
+// Open the markdown viewer for a file by its relative path (e.g. "friend/rob.md").
+// Resolves the path to an IRI via SPARQL, then calls openMarkdownViewer.
+async function openFileByPath(path) {
+    const rows = await sparql(`
+        PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
+        SELECT ?s ?title WHERE {
+            ?s fm:path ?p .
+            FILTER(STRENDS(STR(?p), "${path.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"))
+            OPTIONAL { ?s fm:title ?title }
+        } LIMIT 1
+    `);
+    if (!rows.length) return;
+    const node = { id: rows[0].s, label: rows[0].title || path };
+    openMarkdownViewer(node);
 }
 
 async function loadRepoInfo() {
@@ -516,10 +568,12 @@ async function loadRecentCommits(limit = 30) {
         }
 
         return {
+            id: r.c,
             message: (r.msg || '').split('\n')[0].substring(0, 100),
             author: r.author || '',
             when: formatDate(r.date),
             changedHint: hint,
+            files: paths.filter(p => !p.startsWith('.lex/')).slice(0, 20),
         };
     });
 }
@@ -1918,11 +1972,43 @@ document.addEventListener('DOMContentLoaded', () => {
     initGraphInput();
     connectWS();
     updateSnapshotPill();
+    initSyncButton();
     // Resize graph on window changes
     window.addEventListener('resize', () => {
         if (currentMode === 'graph') resizeGraph();
     });
 });
+
+// Sync button — triggers git lex sync via POST /api/sync.
+// Degrades gracefully if the endpoint doesn't exist (404 → no-op).
+function initSyncButton() {
+    const btn = document.getElementById('sync-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+        if (btn.classList.contains('syncing')) return;
+        btn.classList.add('syncing');
+        btn.textContent = 'syncing…';
+        try {
+            const r = await fetch('/api/sync', { method: 'POST' });
+            if (r.ok) {
+                btn.textContent = 'synced ✓';
+                // Reload the current view to pick up new data.
+                setTimeout(() => {
+                    btn.textContent = 'sync';
+                    btn.classList.remove('syncing');
+                    if (currentMode === 'activity') loadActivity();
+                    else if (currentMode === 'graph') loadGraph();
+                }, 1200);
+            } else {
+                btn.textContent = 'sync';
+                btn.classList.remove('syncing');
+            }
+        } catch (e) {
+            btn.textContent = 'sync';
+            btn.classList.remove('syncing');
+        }
+    });
+}
 
 // Store-snapshot pill — visibility nerf against the silent staleness
 // bug documented in brief/2026-04-09-sparql-endpoint-and-live-store.md.
