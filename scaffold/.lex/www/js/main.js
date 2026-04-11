@@ -607,8 +607,13 @@ const GRAPH_HIDDEN_TYPES = [
 function pickCanonicalType(types) {
     const visible = types.filter(t => !GRAPH_HIDDEN_TYPES.some(p => t.startsWith(p)));
     if (visible.length === 0) return null;
-    // Prefer non-lex-upper types (i.e. real kit classes) over generic Document.
-    const specific = visible.find(t => !t.startsWith('https://repolex.ai/ontology/lex-upper/'));
+    // Prefer kit-specific classes over generic Document fallbacks.
+    // lex-upper/Document and git-lex/lex/Document are both generic types
+    // that every file gets — always prefer the real kit class when present.
+    const specific = visible.find(t =>
+        !t.startsWith('https://repolex.ai/ontology/lex-upper/') &&
+        !t.startsWith('https://repolex.ai/ontology/git-lex/lex/')
+    );
     return specific || visible[0];
 }
 
