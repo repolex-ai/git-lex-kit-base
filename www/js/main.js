@@ -2018,13 +2018,31 @@ function resizeHistoryCanvas() {
 
 // Auto-detect history graph URI by probing for annotation triples
 async function detectHistoryGraph() {
-    // Try standard graph names in order of preference
-    const base = info.repoUri || '';
+    // First, find the repo base URI independently
+    let base = '';
+    const meta = await sparql(`
+        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
+        SELECT ?repo WHERE { ?repo a git:Repo } LIMIT 1
+    `);
+    if (meta[0]) base = meta[0].repo;
+
+    // If no Repo entity, try to derive from a commit URI
+    if (!base) {
+        const sample = await sparql(`
+            PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
+            SELECT ?c WHERE { ?c a git:Commit } LIMIT 1
+        `);
+        if (sample[0]) {
+            const m = sample[0].c.match(/^(https?:\/\/[^/]+\/[^/]+\/[^/]+)\//);
+            if (m) base = m[1];
+        }
+    }
+
+    // Probe standard graph names in order of preference
     const candidates = base
         ? [`<${base}/history>`, `<${base}/historytest>`]
         : [];
 
-    // Also try a fallback: any graph with spo:addedIn triples
     for (const g of candidates) {
         const probe = await sparql(`
             PREFIX spo: <https://repolex.ai/ontology/spo/>
