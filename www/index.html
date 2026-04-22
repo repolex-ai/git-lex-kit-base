@@ -12,6 +12,7 @@
             <a href="#activity" class="mode-link" data-mode="activity">Recent Activity</a>
             <a href="#graph" class="mode-link" data-mode="graph">Repo Graph</a>
             <a href="#interactive" class="mode-link" data-mode="interactive">Interactive</a>
+            <a href="#history" class="mode-link" data-mode="history">History</a>
         </nav>
         <div class="sidebar-footer">
             <button class="sync-btn" id="sync-btn" title="Run git lex sync to refresh the store">sync</button>
@@ -55,6 +56,35 @@
                 </div>
                 <div class="push-render" id="push-render"></div>
             </div>
+        </section>
+
+        <!-- History (animated knowledge graph through time) -->
+        <section id="view-history" class="view" hidden>
+            <div class="history-controls" id="history-controls">
+                <button id="hist-play">play</button>
+                <button id="hist-step">step</button>
+                <button id="hist-reset">reset</button>
+                <select id="hist-speed">
+                    <option value="2000">slow</option>
+                    <option value="800" selected>medium</option>
+                    <option value="300">fast</option>
+                    <option value="80">turbo</option>
+                </select>
+            </div>
+            <div class="history-info" id="history-info">
+                <span class="hist-counter" id="hist-counter">0 / 0</span>
+                <span class="hist-sha" id="hist-sha">—</span>
+                <span class="hist-msg" id="hist-msg">loading commits…</span>
+                <span class="hist-date" id="hist-date"></span>
+            </div>
+            <div class="history-stats" id="history-stats">
+                <span>nodes: <strong id="hist-nodes">0</strong></span>
+                <span>edges: <strong id="hist-edges">0</strong></span>
+                <span class="hist-add">+<strong id="hist-adds">0</strong></span>
+                <span class="hist-remove">-<strong id="hist-removes">0</strong></span>
+            </div>
+            <canvas id="history-canvas"></canvas>
+            <div class="history-progress"><div class="history-progress-bar" id="hist-progress"></div></div>
         </section>
     </main>
 

@@ -48,7 +48,7 @@ function stripExt(name) {
 // Mode routing
 // ════════════════════════════════════════════
 
-const modes = ['activity', 'graph', 'interactive'];
+const modes = ['activity', 'graph', 'interactive', 'history'];
 const views = {};
 modes.forEach(m => views[m] = document.getElementById('view-' + m));
 const sidebarRight = document.getElementById('sidebar-right');
@@ -75,9 +75,11 @@ function setMode(mode) {
         loaded.add(mode);
         if (mode === 'activity') loadActivity();
         if (mode === 'graph') loadGraph();
+        if (mode === 'history') initHistory();
     }
 
     if (mode === 'graph') resizeGraph();
+    if (mode === 'history') resizeHistoryCanvas();
 }
 
 function initRouting() {
@@ -1964,6 +1966,387 @@ function renderPushGraph(rawNodes) {
 }
 
 // ════════════════════════════════════════════
+// HISTORY — animated knowledge graph through time
+// ════════════════════════════════════════════
+
+const hist = {
+    commits: [],
+    idx: -1,
+    playing: false,
+    timer: null,
+    totalAdds: 0,
+    totalRemoves: 0,
+    nodes: {},
+    edges: {},
+    canvas: null,
+    ctx: null,
+    W: 0, H: 0,
+    zoom: 1,
+    pan: { x: 0, y: 0 },
+    drag: null,
+    raf: null,
+    typeColors: {},
+    paletteIdx: 0,
+    graphUri: null,
+};
+
+const HIST_PALETTE = [
+    '#bb2200', '#2266bb', '#6b2aa0', '#d4a800',
+    '#2a8a2a', '#cc6600', '#0088aa', '#884466',
+    '#446688', '#886644', '#aa4466', '#668844',
+];
+
+function histColor(type) {
+    if (!type) return '#888';
+    const short = type.match(/\/([^/]+)$/)?.[1] || type;
+    if (!hist.typeColors[short]) {
+        hist.typeColors[short] = HIST_PALETTE[hist.paletteIdx % HIST_PALETTE.length];
+        hist.paletteIdx++;
+    }
+    return hist.typeColors[short];
+}
+
+function resizeHistoryCanvas() {
+    if (!hist.canvas) return;
+    const rect = hist.canvas.getBoundingClientRect();
+    hist.W = rect.width;
+    hist.H = rect.height;
+    hist.canvas.width = hist.W * devicePixelRatio;
+    hist.canvas.height = hist.H * devicePixelRatio;
+    hist.ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+
+// Auto-detect history graph URI by probing for annotation triples
+async function detectHistoryGraph() {
+    // Try standard graph names in order of preference
+    const base = info.repoUri || '';
+    const candidates = base
+        ? [`<${base}/history>`, `<${base}/historytest>`]
+        : [];
+
+    // Also try a fallback: any graph with spo:addedIn triples
+    for (const g of candidates) {
+        const probe = await sparql(`
+            PREFIX spo: <https://repolex.ai/ontology/spo/>
+            SELECT (COUNT(*) AS ?n) WHERE {
+                GRAPH ${g} { ?ann spo:addedIn ?c }
+            }
+        `);
+        if (probe[0] && parseInt(probe[0].n) > 0) return g;
+    }
+
+    // Wildcard: find any named graph that has spo:addedIn
+    const wild = await sparql(`
+        PREFIX spo: <https://repolex.ai/ontology/spo/>
+        SELECT DISTINCT ?g WHERE {
+            GRAPH ?g { ?ann spo:addedIn ?c }
+        } LIMIT 1
+    `);
+    if (wild[0]) return `<${wild[0].g}>`;
+
+    return null;
+}
+
+async function initHistory() {
+    hist.canvas = document.getElementById('history-canvas');
+    if (!hist.canvas) return;
+    hist.ctx = hist.canvas.getContext('2d');
+    resizeHistoryCanvas();
+
+    // Detect the history graph
+    hist.graphUri = await detectHistoryGraph();
+    if (!hist.graphUri) {
+        document.getElementById('hist-msg').textContent =
+            'no history graph found — run git lex history rebuild';
+        return;
+    }
+
+    // Load commit list from history graph
+    const rows = await sparql(`
+        PREFIX spo: <https://repolex.ai/ontology/spo/>
+        SELECT DISTINCT ?commit WHERE {
+            GRAPH ${hist.graphUri} {
+                { ?ann spo:addedIn ?commit }
+                UNION
+                { ?ann spo:removedIn ?commit }
+            }
+        }
+    `);
+
+    // Try to get dates + messages from git commit graph
+    const meta = await sparql(`
+        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
+        SELECT ?c ?date ?msg WHERE {
+            ?c a git:Commit .
+            OPTIONAL { ?c git:authorDate ?date }
+            OPTIONAL { ?c git:message ?msg }
+        }
+    `);
+    const dateMap = {}, msgMap = {};
+    meta.forEach(r => {
+        dateMap[r.c] = r.date || '';
+        msgMap[r.c] = (r.msg || '').split('\n')[0].substring(0, 120);
+    });
+
+    hist.commits = rows.map(r => ({
+        uri: r.commit,
+        sha: r.commit.split('/').pop().substring(0, 8),
+        date: dateMap[r.commit] || '',
+        message: msgMap[r.commit] || '',
+    }));
+    if (hist.commits.some(c => c.date)) {
+        hist.commits.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    }
+
+    document.getElementById('hist-counter').textContent = `0 / ${hist.commits.length}`;
+    document.getElementById('hist-msg').textContent =
+        `${hist.commits.length} commits loaded — press play`;
+
+    // Wire controls
+    document.getElementById('hist-play').addEventListener('click', () => {
+        hist.playing ? histStop() : histStart();
+    });
+    document.getElementById('hist-step').addEventListener('click', () => {
+        histStop();
+        histStep();
+    });
+    document.getElementById('hist-reset').addEventListener('click', histReset);
+
+    // Pan/zoom on history canvas
+    hist.canvas.addEventListener('mousedown', e => {
+        hist.drag = { x: e.clientX, y: e.clientY, px: hist.pan.x, py: hist.pan.y };
+    });
+    hist.canvas.addEventListener('mousemove', e => {
+        if (!hist.drag) return;
+        hist.pan.x = hist.drag.px + (e.clientX - hist.drag.x);
+        hist.pan.y = hist.drag.py + (e.clientY - hist.drag.y);
+    });
+    window.addEventListener('mouseup', () => { hist.drag = null; });
+    hist.canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        const d = Math.max(-40, Math.min(40, e.deltaY));
+        hist.zoom *= Math.exp(-d * 0.0025);
+        hist.zoom = Math.max(0.1, Math.min(5, hist.zoom));
+    }, { passive: false });
+
+    // Start render loop
+    function loop() {
+        histSimulate();
+        histDraw();
+        hist.raf = requestAnimationFrame(loop);
+    }
+    loop();
+}
+
+async function histStep() {
+    hist.idx++;
+    if (hist.idx >= hist.commits.length) { histStop(); return; }
+
+    const commit = hist.commits[hist.idx];
+    const events = await sparql(`
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        PREFIX spo: <https://repolex.ai/ontology/spo/>
+        SELECT ?s ?p ?o ?op WHERE {
+            GRAPH ${hist.graphUri} {
+                ?ann rdf:reifies <<( ?s ?p ?o )>> .
+                {
+                    ?ann spo:addedIn <${commit.uri}> .
+                    BIND("+" AS ?op)
+                }
+                UNION
+                {
+                    ?ann spo:removedIn <${commit.uri}> .
+                    BIND("-" AS ?op)
+                }
+            }
+        }
+    `);
+
+    let adds = 0, removes = 0;
+    events.forEach(e => {
+        const isEdge = e.o && e.o.startsWith('http') &&
+            !e.p.includes('rdf-syntax') && !e.p.includes('/spo/');
+
+        if (e.op === '+') {
+            adds++;
+            if (!hist.nodes[e.s]) {
+                hist.nodes[e.s] = {
+                    id: e.s, label: shortName(e.s), type: '', color: '#888',
+                    x: (Math.random() - 0.5) * 400, y: (Math.random() - 0.5) * 400,
+                    vx: 0, vy: 0, size: 6,
+                };
+            }
+            if (e.p.includes('type') || e.p.includes('#type')) {
+                hist.nodes[e.s].type = e.o;
+                hist.nodes[e.s].color = histColor(e.o);
+            }
+            if (isEdge) {
+                if (!hist.nodes[e.o]) {
+                    hist.nodes[e.o] = {
+                        id: e.o, label: shortName(e.o), type: '', color: '#888',
+                        x: (Math.random() - 0.5) * 400, y: (Math.random() - 0.5) * 400,
+                        vx: 0, vy: 0, size: 5,
+                    };
+                }
+                hist.edges[e.s + '|' + e.o + '|' + e.p] =
+                    { source: e.s, target: e.o, predicate: e.p };
+            }
+        } else {
+            removes++;
+            if (isEdge) delete hist.edges[e.s + '|' + e.o + '|' + e.p];
+        }
+    });
+
+    hist.totalAdds += adds;
+    hist.totalRemoves += removes;
+
+    // Update node sizes by degree
+    const deg = {};
+    Object.values(hist.edges).forEach(e => {
+        deg[e.source] = (deg[e.source] || 0) + 1;
+        deg[e.target] = (deg[e.target] || 0) + 1;
+    });
+    Object.values(hist.nodes).forEach(n => {
+        n.size = 5 + Math.min(15, (deg[n.id] || 0) * 1.5);
+    });
+
+    // Update UI
+    document.getElementById('hist-counter').textContent = `${hist.idx + 1} / ${hist.commits.length}`;
+    document.getElementById('hist-sha').textContent = commit.sha;
+    document.getElementById('hist-msg').textContent = commit.message || '—';
+    document.getElementById('hist-date').textContent = commit.date ? commit.date.substring(0, 10) : '';
+    document.getElementById('hist-nodes').textContent = Object.keys(hist.nodes).length;
+    document.getElementById('hist-edges').textContent = Object.keys(hist.edges).length;
+    document.getElementById('hist-adds').textContent = hist.totalAdds;
+    document.getElementById('hist-removes').textContent = hist.totalRemoves;
+    document.getElementById('hist-progress').style.width =
+        ((hist.idx + 1) / hist.commits.length * 100) + '%';
+}
+
+function histSimulate() {
+    const arr = Object.values(hist.nodes);
+    const edgeArr = Object.values(hist.edges);
+    const N = arr.length;
+    if (N === 0) return;
+
+    const repulsion = Math.max(30, 500 / Math.sqrt(N));
+
+    for (let i = 0; i < N; i++) {
+        const a = arr[i];
+        for (let j = i + 1; j < N; j++) {
+            const b = arr[j];
+            let dx = b.x - a.x, dy = b.y - a.y;
+            let d2 = dx * dx + dy * dy;
+            if (d2 < 1) d2 = 1;
+            const f = repulsion / d2;
+            a.vx -= dx * f; a.vy -= dy * f;
+            b.vx += dx * f; b.vy += dy * f;
+        }
+    }
+
+    edgeArr.forEach(e => {
+        const a = hist.nodes[e.source], b = hist.nodes[e.target];
+        if (!a || !b) return;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const f = (d - 50) * 0.02;
+        a.vx += (dx / d) * f; a.vy += (dy / d) * f;
+        b.vx -= (dx / d) * f; b.vy -= (dy / d) * f;
+    });
+
+    arr.forEach(n => {
+        n.vx -= n.x * 0.008;
+        n.vy -= n.y * 0.008;
+        n.vx *= 0.82;
+        n.vy *= 0.82;
+        n.x += n.vx;
+        n.y += n.vy;
+    });
+}
+
+function histDraw() {
+    if (!hist.ctx) return;
+    const c = hist.ctx;
+    c.clearRect(0, 0, hist.W, hist.H);
+    c.save();
+    c.translate(hist.W / 2 + hist.pan.x, hist.H / 2 + hist.pan.y);
+    c.scale(hist.zoom, hist.zoom);
+
+    c.lineWidth = 0.8 / hist.zoom;
+    Object.values(hist.edges).forEach(e => {
+        const a = hist.nodes[e.source], b = hist.nodes[e.target];
+        if (!a || !b) return;
+        c.strokeStyle = 'rgba(0,0,0,0.12)';
+        c.beginPath();
+        c.moveTo(a.x, a.y);
+        c.lineTo(b.x, b.y);
+        c.stroke();
+    });
+
+    Object.values(hist.nodes).forEach(n => {
+        c.fillStyle = n.color;
+        c.beginPath();
+        c.arc(n.x, n.y, n.size / hist.zoom, 0, Math.PI * 2);
+        c.fill();
+    });
+
+    if (hist.zoom > 0.5) {
+        c.font = `${11 / hist.zoom}px 'American Typewriter', Courier, monospace`;
+        c.fillStyle = '#222';
+        c.textAlign = 'center';
+        c.textBaseline = 'top';
+        Object.values(hist.nodes).forEach(n => {
+            if (n.size < 5 && hist.zoom < 1) return;
+            c.fillText(n.label, n.x, n.y + n.size / hist.zoom + 3 / hist.zoom);
+        });
+    }
+
+    c.restore();
+}
+
+function histStart() {
+    if (hist.playing) return;
+    hist.playing = true;
+    document.getElementById('hist-play').textContent = 'pause';
+    document.getElementById('hist-play').classList.add('active');
+    (function next() {
+        if (!hist.playing) return;
+        hist.timer = setTimeout(async () => {
+            await histStep();
+            if (hist.idx < hist.commits.length - 1) next();
+            else histStop();
+        }, parseInt(document.getElementById('hist-speed').value) || 800);
+    })();
+}
+
+function histStop() {
+    hist.playing = false;
+    clearTimeout(hist.timer);
+    document.getElementById('hist-play').textContent = 'play';
+    document.getElementById('hist-play').classList.remove('active');
+}
+
+function histReset() {
+    histStop();
+    hist.idx = -1;
+    hist.totalAdds = 0;
+    hist.totalRemoves = 0;
+    hist.paletteIdx = 0;
+    for (const k in hist.nodes) delete hist.nodes[k];
+    for (const k in hist.edges) delete hist.edges[k];
+    for (const k in hist.typeColors) delete hist.typeColors[k];
+    document.getElementById('hist-counter').textContent = `0 / ${hist.commits.length}`;
+    document.getElementById('hist-sha').textContent = '—';
+    document.getElementById('hist-msg').textContent = 'press play to begin';
+    document.getElementById('hist-date').textContent = '';
+    document.getElementById('hist-nodes').textContent = '0';
+    document.getElementById('hist-edges').textContent = '0';
+    document.getElementById('hist-adds').textContent = '0';
+    document.getElementById('hist-removes').textContent = '0';
+    document.getElementById('hist-progress').style.width = '0%';
+}
+
+// ════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════
 
@@ -1976,6 +2359,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Resize graph on window changes
     window.addEventListener('resize', () => {
         if (currentMode === 'graph') resizeGraph();
+        if (currentMode === 'history') resizeHistoryCanvas();
     });
 });
 
