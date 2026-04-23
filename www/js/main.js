@@ -68,8 +68,8 @@ function setMode(mode) {
         views[m].hidden = (m !== mode);
     });
 
-    // Right sidebar (class toggles + stats) only on graph mode
-    sidebarRight.hidden = (mode !== 'graph');
+    // Right sidebar on graph and history modes
+    sidebarRight.hidden = (mode !== 'graph' && mode !== 'history');
 
     if (!loaded.has(mode)) {
         loaded.add(mode);
@@ -2181,51 +2181,74 @@ async function histStep() {
     `);
 
     let adds = 0, removes = 0;
+
+    function ensureNode(uri, size) {
+        if (!hist.nodes[uri]) {
+            hist.nodes[uri] = {
+                id: uri, label: shortName(uri), type: '', color: '#888',
+                x: (Math.random() - 0.5) * 400, y: (Math.random() - 0.5) * 400,
+                vx: 0, vy: 0, size: size || 6,
+                triples: 0, ghost: false,
+            };
+        }
+        return hist.nodes[uri];
+    }
+
     events.forEach(e => {
+        const isType = e.p.includes('type') || e.p.includes('#type');
         const isEdge = e.o && e.o.startsWith('http') &&
             !e.p.includes('rdf-syntax') && !e.p.includes('/spo/');
 
         if (e.op === '+') {
             adds++;
-            if (!hist.nodes[e.s]) {
-                hist.nodes[e.s] = {
-                    id: e.s, label: shortName(e.s), type: '', color: '#888',
-                    x: (Math.random() - 0.5) * 400, y: (Math.random() - 0.5) * 400,
-                    vx: 0, vy: 0, size: 6,
-                };
-            }
-            if (e.p.includes('type') || e.p.includes('#type')) {
-                hist.nodes[e.s].type = e.o;
-                hist.nodes[e.s].color = histColor(e.o);
+            const sNode = ensureNode(e.s, 6);
+            sNode.triples++;
+            sNode.ghost = false;
+
+            if (isType) {
+                sNode.type = e.o;
+                sNode.color = histColor(e.o);
             }
             if (isEdge) {
-                if (!hist.nodes[e.o]) {
-                    hist.nodes[e.o] = {
-                        id: e.o, label: shortName(e.o), type: '', color: '#888',
-                        x: (Math.random() - 0.5) * 400, y: (Math.random() - 0.5) * 400,
-                        vx: 0, vy: 0, size: 5,
-                    };
-                }
+                const oNode = ensureNode(e.o, 5);
+                oNode.triples++;
+                oNode.ghost = false;
                 hist.edges[e.s + '|' + e.o + '|' + e.p] =
                     { source: e.s, target: e.o, predicate: e.p };
             }
         } else {
             removes++;
-            if (isEdge) delete hist.edges[e.s + '|' + e.o + '|' + e.p];
+            // Decrement triple counts on subject
+            if (hist.nodes[e.s]) {
+                hist.nodes[e.s].triples = Math.max(0, hist.nodes[e.s].triples - 1);
+                if (hist.nodes[e.s].triples === 0) hist.nodes[e.s].ghost = true;
+            }
+            if (isType && hist.nodes[e.s]) {
+                hist.nodes[e.s].type = '';
+                hist.nodes[e.s].color = '#888';
+            }
+            if (isEdge) {
+                delete hist.edges[e.s + '|' + e.o + '|' + e.p];
+                // Decrement on object side too
+                if (hist.nodes[e.o]) {
+                    hist.nodes[e.o].triples = Math.max(0, hist.nodes[e.o].triples - 1);
+                    if (hist.nodes[e.o].triples === 0) hist.nodes[e.o].ghost = true;
+                }
+            }
         }
     });
 
     hist.totalAdds += adds;
     hist.totalRemoves += removes;
 
-    // Update node sizes by degree
+    // Update node sizes by degree (alive nodes only)
     const deg = {};
     Object.values(hist.edges).forEach(e => {
         deg[e.source] = (deg[e.source] || 0) + 1;
         deg[e.target] = (deg[e.target] || 0) + 1;
     });
     Object.values(hist.nodes).forEach(n => {
-        n.size = 5 + Math.min(15, (deg[n.id] || 0) * 1.5);
+        n.size = n.ghost ? 3 : 5 + Math.min(15, (deg[n.id] || 0) * 1.5);
     });
 
     // Update UI
@@ -2233,26 +2256,80 @@ async function histStep() {
     document.getElementById('hist-sha').textContent = commit.sha;
     document.getElementById('hist-msg').textContent = commit.message || '—';
     document.getElementById('hist-date').textContent = commit.date ? commit.date.substring(0, 10) : '';
-    document.getElementById('hist-nodes').textContent = Object.keys(hist.nodes).length;
+    const aliveNodes = Object.values(hist.nodes).filter(n => !n.ghost).length;
+    document.getElementById('hist-nodes').textContent = aliveNodes;
     document.getElementById('hist-edges').textContent = Object.keys(hist.edges).length;
     document.getElementById('hist-adds').textContent = hist.totalAdds;
     document.getElementById('hist-removes').textContent = hist.totalRemoves;
     document.getElementById('hist-progress').style.width =
         ((hist.idx + 1) / hist.commits.length * 100) + '%';
+
+    updateHistSidebar();
+}
+
+function updateHistSidebar() {
+    // Count alive nodes per type (ghosts excluded)
+    const typeCounts = {};
+    let aliveCount = 0, ghostCount = 0;
+    Object.values(hist.nodes).forEach(n => {
+        if (n.ghost) { ghostCount++; return; }
+        aliveCount++;
+        const t = n.type || '(untyped)';
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+    });
+
+    // Sort by count descending
+    const sorted = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+
+    // Classes panel
+    const classesEl = document.getElementById('graph-classes');
+    classesEl.innerHTML = sorted.map(([t, count]) => {
+        const short = t === '(untyped)' ? t : (t.match(/\/([^/]+)$/)?.[1] || t);
+        const color = t === '(untyped)' ? '#888' : histColor(t);
+        return `<div class="graph-class-row">
+            <span class="graph-class-dot" style="background:${color}"></span>
+            <span class="graph-class-name">${short}</span>
+            <span class="graph-class-count">${count}</span>
+        </div>`;
+    }).join('');
+
+    // Stats panel
+    const metaEl = document.getElementById('graph-meta');
+    metaEl.innerHTML = `
+        <div>${aliveCount} alive${ghostCount ? ` · ${ghostCount} ghost` : ''}</div>
+        <div>${Object.keys(hist.edges).length} edges</div>
+        <div>${sorted.length} types</div>
+        <div>${hist.commits.length} commits</div>
+    `;
+
+    // Predicates panel — count edges by predicate
+    const predCounts = {};
+    Object.values(hist.edges).forEach(e => {
+        const short = e.predicate.match(/\/([^/]+)$/)?.[1] || e.predicate;
+        predCounts[short] = (predCounts[short] || 0) + 1;
+    });
+    const predSorted = Object.entries(predCounts).sort((a, b) => b[1] - a[1]);
+    const predsEl = document.getElementById('graph-predicates');
+    predsEl.innerHTML = predSorted.map(([p, count]) =>
+        `<div class="graph-class-row">
+            <span class="graph-class-name">${p}</span>
+            <span class="graph-class-count">${count}</span>
+        </div>`
+    ).join('');
 }
 
 function histSimulate() {
-    const arr = Object.values(hist.nodes);
+    const alive = Object.values(hist.nodes).filter(n => !n.ghost);
     const edgeArr = Object.values(hist.edges);
-    const N = arr.length;
+    const N = alive.length;
     if (N === 0) return;
 
     const repulsion = Math.max(30, 500 / Math.sqrt(N));
 
     for (let i = 0; i < N; i++) {
-        const a = arr[i];
+        const a = alive[i];
         for (let j = i + 1; j < N; j++) {
-            const b = arr[j];
+            const b = alive[j];
             let dx = b.x - a.x, dy = b.y - a.y;
             let d2 = dx * dx + dy * dy;
             if (d2 < 1) d2 = 1;
@@ -2264,7 +2341,7 @@ function histSimulate() {
 
     edgeArr.forEach(e => {
         const a = hist.nodes[e.source], b = hist.nodes[e.target];
-        if (!a || !b) return;
+        if (!a || !b || a.ghost || b.ghost) return;
         const dx = b.x - a.x, dy = b.y - a.y;
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
         const f = (d - 50) * 0.02;
@@ -2272,13 +2349,19 @@ function histSimulate() {
         b.vx -= (dx / d) * f; b.vy -= (dy / d) * f;
     });
 
-    arr.forEach(n => {
+    alive.forEach(n => {
         n.vx -= n.x * 0.008;
         n.vy -= n.y * 0.008;
         n.vx *= 0.82;
         n.vy *= 0.82;
         n.x += n.vx;
         n.y += n.vy;
+    });
+
+    // Ghosts: freeze velocity, slowly drift toward center
+    Object.values(hist.nodes).forEach(n => {
+        if (!n.ghost) return;
+        n.vx = 0; n.vy = 0;
     });
 }
 
@@ -2290,6 +2373,7 @@ function histDraw() {
     c.translate(hist.W / 2 + hist.pan.x, hist.H / 2 + hist.pan.y);
     c.scale(hist.zoom, hist.zoom);
 
+    // Edges (alive only)
     c.lineWidth = 0.8 / hist.zoom;
     Object.values(hist.edges).forEach(e => {
         const a = hist.nodes[e.source], b = hist.nodes[e.target];
@@ -2301,19 +2385,34 @@ function histDraw() {
         c.stroke();
     });
 
+    // Ghost nodes — faint, behind alive nodes
+    c.globalAlpha = 0.08;
     Object.values(hist.nodes).forEach(n => {
+        if (!n.ghost) return;
+        c.fillStyle = '#888';
+        c.beginPath();
+        c.arc(n.x, n.y, n.size / hist.zoom, 0, Math.PI * 2);
+        c.fill();
+    });
+    c.globalAlpha = 1;
+
+    // Alive nodes
+    Object.values(hist.nodes).forEach(n => {
+        if (n.ghost) return;
         c.fillStyle = n.color;
         c.beginPath();
         c.arc(n.x, n.y, n.size / hist.zoom, 0, Math.PI * 2);
         c.fill();
     });
 
+    // Labels (alive only)
     if (hist.zoom > 0.5) {
         c.font = `${11 / hist.zoom}px 'American Typewriter', Courier, monospace`;
         c.fillStyle = '#222';
         c.textAlign = 'center';
         c.textBaseline = 'top';
         Object.values(hist.nodes).forEach(n => {
+            if (n.ghost) return;
             if (n.size < 5 && hist.zoom < 1) return;
             c.fillText(n.label, n.x, n.y + n.size / hist.zoom + 3 / hist.zoom);
         });
@@ -2362,6 +2461,9 @@ function histReset() {
     document.getElementById('hist-adds').textContent = '0';
     document.getElementById('hist-removes').textContent = '0';
     document.getElementById('hist-progress').style.width = '0%';
+    document.getElementById('graph-classes').innerHTML = '';
+    document.getElementById('graph-predicates').innerHTML = '';
+    document.getElementById('graph-meta').innerHTML = '';
 }
 
 // ════════════════════════════════════════════

@@ -270,6 +270,34 @@ nav.modes {
     flex-shrink: 0;
 }
 
+.graph-class-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    padding: 0.1rem 0;
+}
+.graph-class-dot {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.graph-class-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.graph-class-count {
+    color: var(--ink-faint);
+    font-size: 0.68rem;
+    min-width: 1.5rem;
+    text-align: right;
+}
+
 /* ════════════════════════════════════════════
    MAIN
 ════════════════════════════════════════════ */
