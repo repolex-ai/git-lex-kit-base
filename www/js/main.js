@@ -2098,12 +2098,15 @@ async function initHistory() {
         }
     `);
 
-    // Try to get dates + messages from git commit graph
+    // Try to get dates + messages from git commit graph. Predicate is
+    // git:authoredDate (past participle) — this is what the git extractor
+    // emits. Earlier code used git:authorDate which returns zero rows and
+    // silently breaks chronological sort below.
     const meta = await sparql(`
         PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
         SELECT ?c ?date ?msg WHERE {
             ?c a git:Commit .
-            OPTIONAL { ?c git:authorDate ?date }
+            OPTIONAL { ?c git:authoredDate ?date }
             OPTIONAL { ?c git:message ?msg }
         }
     `);
@@ -2201,10 +2204,21 @@ async function histStep() {
         return hist.nodes[uri];
     }
 
+    const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+    const GIT_PREFIX = 'https://repolex.ai/ontology/git-lex/git/';
+    const FM_PREFIX = 'https://repolex.ai/ontology/git-lex/fm/';
     events.forEach(e => {
-        const isType = e.p.includes('type') || e.p.includes('#type');
+        // Exact match — substring ".includes('type')" matched git:changeType,
+        // git:type, future *.contentType, etc.
+        const isType = e.p === RDF_TYPE;
+        // Edges connect two extracted docs. Skip rdf:type, anything in the
+        // git/ infrastructure namespace, and frontmatter literal predicates
+        // even when they happen to carry an http-URI value.
         const isEdge = e.o && e.o.startsWith('http') &&
-            !e.p.includes('rdf-syntax') && !e.p.includes('/spo/');
+            e.p !== RDF_TYPE &&
+            !e.p.startsWith(GIT_PREFIX) &&
+            !e.p.startsWith(FM_PREFIX) &&
+            !e.p.includes('/spo/');
 
         if (e.op === '+') {
             adds++;
