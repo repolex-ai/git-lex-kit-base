@@ -288,10 +288,12 @@ async function loadRepoInfo() {
     `);
     if (commits[0]) info.commits = parseInt(commits[0].n) || 0;
 
-    // Count distinct documents
+    // Count distinct documents. Gates on fm:path (emitted for every extracted
+    // doc) rather than fm:title (only present when frontmatter has a `title:`
+    // field — soul-kit and other class-keyed kits don't use it).
     const docs = await sparql(`
         PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
-        SELECT (COUNT(DISTINCT ?d) AS ?n) WHERE { ?d fm:title ?t }
+        SELECT (COUNT(DISTINCT ?d) AS ?n) WHERE { ?d fm:path ?p }
     `);
     if (docs[0]) info.docs = parseInt(docs[0].n) || 0;
 
@@ -678,19 +680,24 @@ async function loadGraph() {
     // Excludes /sync/{sha} and /changeset/{sha} which materialize per-commit
     // deltas and would inflate degree counts via default-graph union.
 
+    // Nodes are anything with an fm:path (universal — the extractor emits it
+    // for every doc). Title is optional; falls back to shortName(IRI) when
+    // absent. Soul-kit and other class-keyed kits don't emit fm:title.
     const rawNodes = await sparql(`
         PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
         SELECT DISTINCT ?s ?type ?title WHERE {
             GRAPH ?g {
-                ?s a ?type ; fm:title ?title .
+                ?s a ?type ; fm:path ?path .
+                OPTIONAL { ?s fm:title ?title }
             }
             FILTER(STRENDS(STR(?g), "/now"))
         }
     `);
 
-    // Edges: any predicate whose subject AND object both have an fm:title.
-    // Captures lex:mentions / lex:linksTo (body wikilinks) plus any kit
-    // owl:ObjectProperty that resolved to an entity IRI (e.g. soul:relatedTo).
+    // Edges: any predicate whose subject AND object are both extracted docs
+    // (i.e. both have an fm:path). Captures lex:mentions / lex:linksTo (body
+    // wikilinks) plus any kit owl:ObjectProperty that resolved to an entity
+    // IRI (e.g. soul:relatedTo).
     const edges = await sparql(`
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
@@ -698,8 +705,8 @@ async function loadGraph() {
         SELECT DISTINCT ?s ?p ?o WHERE {
             GRAPH ?g {
                 ?s ?p ?o .
-                ?s fm:title ?st .
-                ?o fm:title ?ot .
+                ?s fm:path ?sp .
+                ?o fm:path ?op .
                 FILTER(?s != ?o)
                 FILTER(?p != rdf:type)
                 FILTER(!STRSTARTS(STR(?p), STR(fm:)))
