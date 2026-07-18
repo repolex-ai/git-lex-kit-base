@@ -5,18 +5,19 @@
 @prefix git: <https://repolex.ai/ontology/git-lex/git/> .
 
 # =============================================================================
-# GIT-LEX GIT ONTOLOGY
+# GIT-LEX GIT ONTOLOGY (git:)
 # =============================================================================
-# Defines RDF classes and properties for git objects as surfaced by git commands.
-# This is the immutable base ontology for the git-lex virtual graph layer.
+# RDF classes and properties for git objects as surfaced by git commands, plus
+# the sync-diff machinery git-lex uses to keep an append-only knowledge graph.
+# A parser namespace nested under the git-lex application.
 #
-# Namespace: git: = https://repolex.ai/ontology/git-lex/
+# Namespace: git: = https://repolex.ai/ontology/git-lex/git/
 # =============================================================================
 
-<https://repolex.ai/ontology/git-lex/> a owl:Ontology ;
-    rdfs:label "git-lex Ontology" ;
-    rdfs:comment "Git knowledge graph ontology. Defines classes and properties for git objects translated into RDF by git-lex." ;
-    owl:versionInfo "0.0.1" .
+<https://repolex.ai/ontology/git-lex/git/> a owl:Ontology ;
+    rdfs:label "git-lex Git Ontology" ;
+    rdfs:comment "Classes and properties for git objects translated into RDF by git-lex, plus the sync-diff annotation vocabulary." ;
+    owl:versionInfo "0.1.0" .
 
 # =============================================================================
 # Classes
@@ -55,6 +56,10 @@ git:Changeset a owl:Class ;
 git:File a owl:Class ;
     rdfs:label "File" ;
     rdfs:comment "A file in the repository, identified by its content (blob hash) and location (path). The same blob at different paths is different files. The same path with different content is different versions of the same file." .
+
+git:Annotation a owl:Class ;
+    rdfs:label "Annotation" ;
+    rdfs:comment "A sync-diff annotation node. Each records the fate of one asserted fact across a sync (e.g. that it was retracted), pinned to the commit that produced the change. Instances live in the per-commit sync graph." .
 
 # =============================================================================
 # Commit Properties
@@ -183,7 +188,7 @@ git:blobHash a owl:DatatypeProperty ;
 git:blob a owl:ObjectProperty ;
     rdfs:domain git:Blob ;
     rdfs:label "blob" ;
-    rdfs:comment "Links a filetree entry to its content-addressed blob URI. Use for joins with lex:mentionedInBlob." .
+    rdfs:comment "Links a filetree entry to its content-addressed blob URI." .
 
 git:size a owl:DatatypeProperty ;
     rdfs:domain git:Blob ;
@@ -234,3 +239,24 @@ git:blamedEmail a owl:DatatypeProperty ;
     rdfs:range xsd:string ;
     rdfs:label "blamedEmail" ;
     rdfs:comment "Author email from git blame." .
+
+# =============================================================================
+# Sync-Diff Annotation Properties
+# =============================================================================
+# The append-only sync engine never deletes a fact; it writes an Annotation
+# recording the fact's fate. Used on git:Annotation nodes in the sync graph.
+# (Previously emitted by code with NO ontology declaration — commitId and
+# retracted were urn-style code-only ghosts; retracted was declared under lex:.
+# Both now live here, with the git objects they describe.)
+
+git:commitId a owl:DatatypeProperty ;
+    rdfs:domain git:Annotation ;
+    rdfs:range xsd:string ;
+    rdfs:label "commitId" ;
+    rdfs:comment "The commit SHA this annotation is pinned to — the sync in which the recorded change occurred." .
+
+git:retracted a owl:DatatypeProperty ;
+    rdfs:domain git:Annotation ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "retracted" ;
+    rdfs:comment "Marks the annotated fact as retracted — its source line or file was removed. The original triple is never deleted (append-only); this tombstone records that it is no longer asserted as of git:commitId." .

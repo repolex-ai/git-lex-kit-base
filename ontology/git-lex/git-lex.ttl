@@ -1,0 +1,45 @@
+@prefix git-lex: <https://repolex.ai/ontology/git-lex/> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+
+# =============================================================================
+# GIT-LEX CORE ONTOLOGY (git-lex:)
+# =============================================================================
+# The vocabulary git-lex authors about the documents it tracks. This is the
+# application's own namespace — a peer of the parser namespaces nested beside
+# it (git/, md/, fm/), each of which has its own predicate space.
+#
+# Namespace: git-lex: = https://repolex.ai/ontology/git-lex/
+#
+# Kept deliberately small: git-lex tracks markdown files and types each as a
+# Document. Everything else about a file's git identity lives in git:, its
+# markdown body in md:, its frontmatter keys in fm:. This file holds only what
+# git-lex itself asserts about a tracked document.
+#
+# (Formerly the lex: namespace. lex: was invented only to name "the app's own
+# vocabulary" when git-lex/git-lex looked redundant — it was never needed; the
+# app's vocabulary lives at the app's root namespace, like every other app.)
+# =============================================================================
+
+git-lex: a owl:Ontology ;
+    rdfs:label "git-lex Core Ontology" ;
+    rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
+    owl:versionInfo "0.3" .
+
+# =============================================================================
+# Classes
+# =============================================================================
+
+git-lex:Document a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "A content file git-lex tracks. The primary unit of knowledge. Every tracked .md file is a Document." .
+
+# =============================================================================
+# Properties
+# =============================================================================
+
+git-lex:name a owl:DatatypeProperty ;
+    rdfs:label "name" ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Human-readable name for a tracked document." .
