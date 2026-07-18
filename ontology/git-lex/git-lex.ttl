@@ -2,6 +2,7 @@
 @prefix owl:     <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix sd:      <http://www.w3.org/ns/sparql-service-description#> .
 
 # =============================================================================
 # GIT-LEX CORE ONTOLOGY (git-lex:)
@@ -25,7 +26,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.3" .
+    owl:versionInfo "0.4" .
 
 # =============================================================================
 # Classes
@@ -34,6 +35,11 @@ git-lex: a owl:Ontology ;
 git-lex:Document a owl:Class ;
     rdfs:label "Document" ;
     rdfs:comment "A content file git-lex tracks. The primary unit of knowledge. Every tracked .md file is a Document." .
+
+git-lex:NamedGraph a owl:Class ;
+    rdfs:subClassOf sd:NamedGraph ;
+    rdfs:label "NamedGraph" ;
+    rdfs:comment "A named graph git-lex maintains in a repo's knowledge base (e.g. the live 'now' graph and the 'history' graph). Instances are minted under the git-lex application slug — https://repolex.ai/git-lex/NamedGraph/now, .../NamedGraph/history — and typed against this class in the default graph for zero-knowledge discovery. Note the two-resources distinction: the NamedGraph OBJECT (this IRI) is the queryable thing that describes the graph; the graph it names is carried via sd:name. Anchored to the W3C SPARQL Service Description sd:NamedGraph — the one external supertype git-lex adopts, because it is a real standard class, not an invented layer." .
 
 # =============================================================================
 # Properties
