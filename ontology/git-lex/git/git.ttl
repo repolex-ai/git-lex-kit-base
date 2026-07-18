@@ -17,7 +17,7 @@
 <https://repolex.ai/ontology/git-lex/git/> a owl:Ontology ;
     rdfs:label "git-lex Git Ontology" ;
     rdfs:comment "Classes and properties for git objects translated into RDF by git-lex, plus the sync-diff annotation vocabulary." ;
-    owl:versionInfo "0.2.0" .
+    owl:versionInfo "0.3.0" .
 
 # =============================================================================
 # Classes
@@ -126,32 +126,6 @@ git:changed a owl:ObjectProperty ;
     rdfs:range git:Changeset ;
     rdfs:label "changed" ;
     rdfs:comment "Links a commit to the files it changed." .
-
-# Inline author/committer properties (temporary, will migrate to Actor nodes)
-
-git:authorName a owl:DatatypeProperty ;
-    rdfs:domain git:Commit ;
-    rdfs:range xsd:string ;
-    rdfs:label "authorName" ;
-    rdfs:comment "Author display name (temporary, will migrate to git:Actor)." .
-
-git:authorEmail a owl:DatatypeProperty ;
-    rdfs:domain git:Commit ;
-    rdfs:range xsd:string ;
-    rdfs:label "authorEmail" ;
-    rdfs:comment "Author email (temporary, will migrate to git:Actor)." .
-
-git:committerName a owl:DatatypeProperty ;
-    rdfs:domain git:Commit ;
-    rdfs:range xsd:string ;
-    rdfs:label "committerName" ;
-    rdfs:comment "Committer display name (temporary, will migrate to git:Actor)." .
-
-git:committerEmail a owl:DatatypeProperty ;
-    rdfs:domain git:Commit ;
-    rdfs:range xsd:string ;
-    rdfs:label "committerEmail" ;
-    rdfs:comment "Committer email (temporary, will migrate to git:Actor)." .
 
 # =============================================================================
 # Actor Properties
