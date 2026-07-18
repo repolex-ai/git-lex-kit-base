@@ -17,11 +17,15 @@
 <https://repolex.ai/ontology/git-lex/git/> a owl:Ontology ;
     rdfs:label "git-lex Git Ontology" ;
     rdfs:comment "Classes and properties for git objects translated into RDF by git-lex, plus the sync-diff annotation vocabulary." ;
-    owl:versionInfo "0.1.0" .
+    owl:versionInfo "0.2.0" .
 
 # =============================================================================
 # Classes
 # =============================================================================
+
+git:Repo a owl:Class ;
+    rdfs:label "Repo" ;
+    rdfs:comment "The git repository itself — the top-level node git-lex types on every sync. Identified by its genesis SHA (the hash of the very first commit), which is stable across renames and remotes." .
 
 git:Commit a owl:Class ;
     rdfs:label "Commit" ;
@@ -60,6 +64,16 @@ git:File a owl:Class ;
 git:Annotation a owl:Class ;
     rdfs:label "Annotation" ;
     rdfs:comment "A sync-diff annotation node. Each records the fate of one asserted fact across a sync (e.g. that it was retracted), pinned to the commit that produced the change. Instances live in the per-commit sync graph." .
+
+# =============================================================================
+# Repo Properties
+# =============================================================================
+
+git:genesisSha a owl:DatatypeProperty ;
+    rdfs:domain git:Repo ;
+    rdfs:range xsd:string ;
+    rdfs:label "genesisSha" ;
+    rdfs:comment "The SHA of the repository's first (genesis) commit — a stable identifier for the repo across renames and remotes. Emitted on the git:Repo node every sync." .
 
 # =============================================================================
 # Commit Properties
