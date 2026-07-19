@@ -43,13 +43,9 @@ git2:Signature a owl:Class ;
     rdfs:label "Signature" ;
     rdfs:comment "A git action signature (git2::Signature): a name, an email, and a time. A value object attached per commit (as author and committer) and per blame hunk — not a deduplicated person." .
 
-git2:Tree a owl:Class ;
-    rdfs:label "Tree" ;
-    rdfs:comment "A git tree object (git2::Tree): a directory listing of tree entries." .
-
-git2:TreeEntry a owl:Class ;
-    rdfs:label "TreeEntry" ;
-    rdfs:comment "An entry in a tree (git2::TreeEntry): a name bound to an object id with a filemode. The path-in-tree pairing pointing at a Blob (or sub-Tree)." .
+git2:IndexEntry a owl:Class ;
+    rdfs:label "IndexEntry" ;
+    rdfs:comment "A single file at a commit (git2::IndexEntry): a full repo-relative path bound to a blob id. git-lex materializes these by reading a commit's tree into an index (read_tree over commit.tree()), giving a flat list of every file present at that commit with its full path — never the mutable staging index. The flat 'what files are here and where' view; git-lex does not model git's internal tree-object nesting." .
 
 git2:Blob a owl:Class ;
     rdfs:label "Blob" ;
@@ -78,23 +74,23 @@ git2:BlameHunk a owl:Class ;
     rdfs:comment "A contiguous run of lines attributed to one commit within a file's blame (git2::BlameHunk). Carries the original and final signatures for that hunk." .
 
 # =============================================================================
-# id — git2 `id()` returns an Oid on Commit, Tree, TreeEntry, Blob.
-# One property, one meaning (the object's hex id), multiple domains.
+# id — git2 `id()` returns an Oid on Commit, IndexEntry, Blob.
+# One property, one meaning (the object's hex id), multiple domains. On an
+# IndexEntry the id IS the blob oid, so it joins the entry to its git2:Blob.
 # =============================================================================
 
 git2:id a owl:DatatypeProperty ;
     rdfs:domain git2:Commit ;
-    rdfs:domain git2:Tree ;
-    rdfs:domain git2:TreeEntry ;
+    rdfs:domain git2:IndexEntry ;
     rdfs:domain git2:Blob ;
     rdfs:range xsd:string ;
     rdfs:label "id" ;
-    rdfs:comment "The object id (Oid) as a hex string (git2 `id()`). Present on Commit, Tree, TreeEntry, and Blob." .
+    rdfs:comment "The object id (Oid) as a hex string (git2 `id()`). Present on Commit and Blob; on an IndexEntry it is the entry's blob oid (git2 IndexEntry `id`), joining the entry to its Blob." .
 
 # =============================================================================
-# name — git2 `name()` on Signature, TreeEntry, Reference. Same accessor NAME,
-# DIFFERENT meaning per type (a person's name vs a filename vs a ref name), so
-# each is a distinct, qualified property rather than one overloaded `git2:name`.
+# name — git2 `name()` on Signature and Reference. Same accessor NAME, DIFFERENT
+# meaning per type (a person's name vs a ref name), so each is a distinct,
+# qualified property rather than one overloaded `git2:name`.
 # =============================================================================
 
 git2:signatureName a owl:DatatypeProperty ;
@@ -102,12 +98,6 @@ git2:signatureName a owl:DatatypeProperty ;
     rdfs:range xsd:string ;
     rdfs:label "signatureName" ;
     rdfs:comment "The signature's person name (git2 Signature `name()`)." .
-
-git2:entryName a owl:DatatypeProperty ;
-    rdfs:domain git2:TreeEntry ;
-    rdfs:range xsd:string ;
-    rdfs:label "entryName" ;
-    rdfs:comment "The entry's filename — last path segment only (git2 TreeEntry `name()`)." .
 
 git2:refName a owl:DatatypeProperty ;
     rdfs:domain git2:Reference ;
@@ -155,11 +145,11 @@ git2:parent a owl:ObjectProperty ;
     rdfs:label "parent" ;
     rdfs:comment "A parent commit (git2 `parent_ids()`). A merge commit has more than one." .
 
-git2:tree a owl:ObjectProperty ;
+git2:file a owl:ObjectProperty ;
     rdfs:domain git2:Commit ;
-    rdfs:range git2:Tree ;
-    rdfs:label "tree" ;
-    rdfs:comment "The tree this commit points at (git2 `tree()` / `tree_id()`)." .
+    rdfs:range git2:IndexEntry ;
+    rdfs:label "file" ;
+    rdfs:comment "A file present at this commit (git-lex reads the commit's tree into an index and iterates its entries). Repeat per file." .
 
 # =============================================================================
 # Signature properties (git2::Signature accessors) — name is git2:signatureName above
@@ -178,33 +168,34 @@ git2:when a owl:DatatypeProperty ;
     rdfs:comment "The signature's time (git2 Signature `when()`). A commit's author-time and commit-time each live on their respective signature." .
 
 # =============================================================================
-# Tree / TreeEntry properties (git2::Tree, git2::TreeEntry accessors)
-# entryName is above (the `name()` disambiguation).
+# IndexEntry properties (git2::IndexEntry fields)
+# id (the blob oid) is git2:id above. git-lex models the fields it uses; the
+# filesystem-stat fields (ctime/mtime/dev/ino/uid/gid/flags) are not modelled.
 # =============================================================================
 
-git2:entry a owl:ObjectProperty ;
-    rdfs:domain git2:Tree ;
-    rdfs:range git2:TreeEntry ;
-    rdfs:label "entry" ;
-    rdfs:comment "An entry contained in this tree (git2 tree iteration)." .
-
-git2:kind a owl:DatatypeProperty ;
-    rdfs:domain git2:TreeEntry ;
+git2:path a owl:DatatypeProperty ;
+    rdfs:domain git2:IndexEntry ;
     rdfs:range xsd:string ;
-    rdfs:label "kind" ;
-    rdfs:comment "The entry's object type (git2 TreeEntry `kind()` → ObjectType): one of blob, tree, commit, tag." .
+    rdfs:label "path" ;
+    rdfs:comment "The full repo-relative path of this file (git2 IndexEntry `path`). Scoped to IndexEntry: within that class there is exactly one kind of path, so the name is precise. For git-lex this is always a committed path (materialized from a commit's tree), never the staging index." .
 
-git2:filemode a owl:DatatypeProperty ;
-    rdfs:domain git2:TreeEntry ;
+git2:fileSize a owl:DatatypeProperty ;
+    rdfs:domain git2:IndexEntry ;
     rdfs:range xsd:integer ;
-    rdfs:label "filemode" ;
-    rdfs:comment "The entry's UNIX filemode (git2 TreeEntry `filemode()`)." .
+    rdfs:label "fileSize" ;
+    rdfs:comment "The file's size in bytes (git2 IndexEntry `file_size`)." .
 
-git2:object a owl:ObjectProperty ;
-    rdfs:domain git2:TreeEntry ;
+git2:mode a owl:DatatypeProperty ;
+    rdfs:domain git2:IndexEntry ;
+    rdfs:range xsd:integer ;
+    rdfs:label "mode" ;
+    rdfs:comment "The file's UNIX mode (git2 IndexEntry `mode`)." .
+
+git2:blob a owl:ObjectProperty ;
+    rdfs:domain git2:IndexEntry ;
     rdfs:range git2:Blob ;
-    rdfs:label "object" ;
-    rdfs:comment "The object this entry points at, by id (git2 TreeEntry `id()`) — a Blob (or a sub-Tree)." .
+    rdfs:label "blob" ;
+    rdfs:comment "The content blob this entry points at — joined by the entry's blob oid (git2 IndexEntry `id`)." .
 
 # =============================================================================
 # Blob properties (git2::Blob accessors)
