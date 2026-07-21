@@ -234,31 +234,38 @@ function attachActivityHandlers(view) {
 // Open the markdown viewer for a file by its relative path (e.g. "friend/rob.md").
 // Resolves the path to an IRI via SPARQL, then calls openMarkdownViewer.
 async function openFileByPath(path) {
+    // Doc IRIs derive from repo paths (nothing is invented — universal law),
+    // so path→IRI resolution is a suffix match on the IRI itself in the now
+    // view. fm:path is gone under one-graph.
+    const esc = path.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const rows = await sparql(`
-        PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
-        SELECT ?s ?title WHERE {
-            ?s fm:path ?p .
-            FILTER(STRENDS(STR(?p), "${path.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"))
-            OPTIONAL { ?s fm:title ?title }
+        SELECT ?s ?name WHERE {
+            GRAPH <${NOW_GRAPH}> {
+                ?s a ?type .
+                FILTER(STRENDS(STR(?s), "${esc}"))
+                OPTIONAL { ?s <${GL_NAME}> ?name }
+            }
         } LIMIT 1
     `);
     if (!rows.length) return;
-    const node = { id: rows[0].s, label: rows[0].title || path };
+    const node = { id: rows[0].s, label: rows[0].name || path };
     openMarkdownViewer(node);
 }
 
 async function loadRepoInfo() {
     const info = { name: '', kit: '', version: '', created: '', commits: 0, docs: 0, totalTriples: 0 };
 
-    // Read repo metadata from git:Repo entity
+    // Read repo metadata from the git-lex:Repo node (NamedGraph/repo —
+    // genesisSha + one property per repo.yml key, rebuilt each sync).
     const meta = await sparql(`
-        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-        SELECT ?repo ?name ?kit ?version ?created WHERE {
-            ?repo a git:Repo .
-            OPTIONAL { ?repo git:name ?name }
-            OPTIONAL { ?repo git:kit ?kit }
-            OPTIONAL { ?repo git:version ?version }
-            OPTIONAL { ?repo git:created ?created }
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+        SELECT ?repo ?name ?kit ?version ?created ?genesis WHERE {
+            ?repo a gl:Repo .
+            OPTIONAL { ?repo gl:name ?name }
+            OPTIONAL { ?repo gl:kit ?kit }
+            OPTIONAL { ?repo gl:version ?version }
+            OPTIONAL { ?repo gl:created ?created }
+            OPTIONAL { ?repo gl:genesisSha ?genesis }
         } LIMIT 1
     `);
     if (meta[0]) {
@@ -267,33 +274,28 @@ async function loadRepoInfo() {
         info.version = meta[0].version || '';
         info.created = meta[0].created || '';
         info.repoUri = meta[0].repo || '';
+        info.genesis = meta[0].genesis || '';
     }
-
-    // Fall back to repo name from commit URI if no Repo entity
-    if (!info.name) {
-        const sample = await sparql(`
-            PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-            SELECT ?c WHERE { ?c a git:Commit } LIMIT 1
-        `);
-        if (sample[0]) {
-            const m = sample[0].c.match(/^https?:\/\/[^/]+\/([^/]+\/[^/]+)\//);
-            if (m) info.name = m[1];
-        }
-    }
+    // No fallback path: commit IRIs are repo-independent under one-graph
+    // (git-lex/git2/Commit/<sha>) so nothing can be derived from them, and
+    // the Repo node is rebuilt every sync — if it's missing, sync hasn't run.
 
     // Count commits
     const commits = await sparql(`
-        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-        SELECT (COUNT(?c) AS ?n) WHERE { ?c a git:Commit }
+        PREFIX g2: <https://repolex.ai/ontology/git-lex/git2/>
+        SELECT (COUNT(?c) AS ?n) WHERE {
+            GRAPH <${COMMITS_GRAPH}> { ?c a g2:Commit }
+        }
     `);
     if (commits[0]) info.commits = parseInt(commits[0].n) || 0;
 
-    // Count distinct documents. Gates on fm:path (emitted for every extracted
-    // doc) rather than fm:title (only present when frontmatter has a `title:`
-    // field — soul-kit and other class-keyed kits don't use it).
+    // Count distinct documents: every extracted doc is a typed subject in
+    // the now view (fm:path is gone; file location is git2:path on
+    // IndexEntry in the filetree graph).
     const docs = await sparql(`
-        PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
-        SELECT (COUNT(DISTINCT ?d) AS ?n) WHERE { ?d fm:path ?p }
+        SELECT (COUNT(DISTINCT ?d) AS ?n) WHERE {
+            GRAPH <${NOW_GRAPH}> { ?d a ?type }
+        }
     `);
     if (docs[0]) info.docs = parseInt(docs[0].n) || 0;
 
@@ -317,15 +319,25 @@ const HIDDEN_TYPE_PREFIXES = [
 ];
 
 const FM_TITLE = 'https://repolex.ai/ontology/git-lex/fm/title';
-const GIT_NS = 'https://repolex.ai/ontology/git-lex/git/';
+const GL_NS = 'https://repolex.ai/ontology/git-lex/';
+const G2_NS = 'https://repolex.ai/ontology/git-lex/git2/';
+const GL_NAME = GL_NS + 'name';
+
+// The one-graph store shape (subtexture docs/git-lex/2026_07_21_ONE_GRAPH_AS_
+// SHIPPED.md). These graph IRIs are the same in every git-lex repo on earth —
+// no per-repo derivation needed.
+const ONE_GRAPH     = 'https://repolex.ai/git-lex/LexHistoryGraph';
+const NOW_GRAPH     = 'https://repolex.ai/git-lex/NamedGraph/now';
+const COMMITS_GRAPH = 'https://repolex.ai/git-lex/NamedGraph/commits';
 
 // Per-type label predicate. Returned in priority order — first one that has
-// values for the subject wins. Falls back to fm:title, then shortName(IRI).
+// values for the subject wins. Falls back to gl:name / fm:title, then
+// shortName(IRI).
 const LABEL_PREDICATES = {
-    [GIT_NS + 'Commit']:  GIT_NS + 'message',
-    [GIT_NS + 'Blob']:    GIT_NS + 'path',
-    [GIT_NS + 'Branch']:  GIT_NS + 'shortName',
-    [GIT_NS + 'Repo']:    GIT_NS + 'name',
+    [G2_NS + 'Commit']:     G2_NS + 'summary',
+    [G2_NS + 'IndexEntry']: G2_NS + 'path',
+    [G2_NS + 'Branch']:     G2_NS + 'shorthand',
+    [GL_NS + 'Repo']:       GL_NAME,
 };
 
 function isHiddenType(uri) {
@@ -357,14 +369,15 @@ async function loadClassCounts() {
         const labelPred = LABEL_PREDICATES[uri] || FM_TITLE;
         const name = shortName(uri);
 
-        // Sample labels for this class, scoped to /frontmatter so we don't
-        // hit the cross-graph dup union.
+        // Sample labels for this class from the now view. gl:name is the
+        // canonical label under one-graph; the per-type predicate and
+        // fm:title still win where they exist.
         const samples = await sparql(`
             SELECT DISTINCT ?label WHERE {
-                GRAPH ?g {
-                    ?s a <${uri}> ; <${labelPred}> ?label .
+                GRAPH <${NOW_GRAPH}> {
+                    ?s a <${uri}> .
+                    { ?s <${labelPred}> ?label } UNION { ?s <${GL_NAME}> ?label }
                 }
-                FILTER(STRENDS(STR(?g), "/now"))
             }
             ORDER BY ?label
             LIMIT 6
@@ -372,12 +385,12 @@ async function loadClassCounts() {
 
         let sampleStrs = samples.map(r => (r.label || '').toString().trim()).filter(Boolean);
 
-        // Commit messages can be multi-line — keep just the first line.
-        if (uri === GIT_NS + 'Commit') {
+        // Commit summaries can still be multi-line — keep the first line.
+        if (uri === G2_NS + 'Commit') {
             sampleStrs = sampleStrs.map(s => s.split('\n')[0]);
         }
-        // Blob paths can be long — show the basename for the sample list.
-        if (uri === GIT_NS + 'Blob') {
+        // IndexEntry paths can be long — show the basename for the sample list.
+        if (uri === G2_NS + 'IndexEntry') {
             sampleStrs = sampleStrs.map(s => s.split('/').pop());
         }
 
@@ -392,28 +405,37 @@ async function loadClassCounts() {
     return classes;
 }
 
-// Load every commit (capped) with its file-change count, for the history
-// scrubber strip. The change count is a v1 stand-in for true delta magnitude
-// — once W4R3Z's retraction-aware sync graphs land, swap COUNT(?changed) for
-// the per-sync-graph quad delta.
+// Load every commit (capped) with its statement-event count, for the history
+// scrubber strip. Delta magnitude is now REAL: the number of SpoEvents
+// (statements asserted or retracted) each commit produced in the one graph —
+// the old git:changed file-count stand-in is retired with the changeset layer.
+// Ordering is g2:ordinalDerived, the ordering authority (author dates can tie
+// or lie under rebase/amend).
 async function loadCommitTimeline() {
     const rows = await sparql(`
-        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-        SELECT ?c ?date ?msg ?author (COUNT(?changed) AS ?n) WHERE {
-            ?c a git:Commit ;
-               git:committedDate ?date ;
-               git:message ?msg .
-            OPTIONAL { ?c git:authorName ?author }
-            OPTIONAL { ?c git:changed ?changed }
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+        PREFIX g2: <https://repolex.ai/ontology/git-lex/git2/>
+        SELECT ?c ?ord ?when ?msg ?author (COUNT(?e) AS ?n) WHERE {
+            GRAPH <${COMMITS_GRAPH}> {
+                ?c a g2:Commit ; g2:ordinalDerived ?ord ; g2:author ?sig .
+                ?sig g2:xsdDateTimeDerived ?when .
+                OPTIONAL { ?sig g2:signatureName ?author }
+                OPTIONAL { ?c g2:summary ?msg }
+            }
+            OPTIONAL {
+                GRAPH <${ONE_GRAPH}> {
+                    { ?e gl:assertedIn ?c } UNION { ?e gl:retractedIn ?c }
+                }
+            }
         }
-        GROUP BY ?c ?date ?msg ?author
-        ORDER BY ?date
+        GROUP BY ?c ?ord ?when ?msg ?author
+        ORDER BY ?ord
         LIMIT 500
     `);
     return rows.map(r => ({
-        sha: (r.c.match(/\/commit\/([a-f0-9]+)/) || [])[1] || '',
+        sha: (r.c.match(/\/Commit\/([a-f0-9]+)/i) || [])[1] || '',
         uri: r.c,
-        date: r.date,
+        date: r.when,
         msg: (r.msg || '').split('\n')[0],
         author: r.author || '',
         n: parseInt(r.n) || 0,
@@ -511,41 +533,53 @@ function attachTimelineHandlers() {
 }
 
 async function loadRecentCommits(limit = 30) {
-    // Pull commit-level info first.
+    // Pull commit-level info first. Recency = DESC ordinal (the ordering
+    // authority), not author date.
     const rows = await sparql(`
-        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-        SELECT ?c ?msg ?author ?date WHERE {
-            ?c a git:Commit ;
-               git:message ?msg .
-            OPTIONAL { ?c git:authorName ?author }
-            OPTIONAL { ?c git:committedDate ?date }
+        PREFIX g2: <https://repolex.ai/ontology/git-lex/git2/>
+        SELECT ?c ?msg ?author ?when WHERE {
+            GRAPH <${COMMITS_GRAPH}> {
+                ?c a g2:Commit ; g2:ordinalDerived ?ord .
+                OPTIONAL { ?c g2:summary ?msg }
+                OPTIONAL {
+                    ?c g2:author ?sig .
+                    ?sig g2:xsdDateTimeDerived ?when .
+                    OPTIONAL { ?sig g2:signatureName ?author }
+                }
+            }
         }
-        ORDER BY DESC(?date)
+        ORDER BY DESC(?ord)
         LIMIT ${limit}
     `);
 
     if (!rows.length) return [];
 
-    // Pull change paths for the same commits in one query and group by commit.
+    // Pull the statements each commit touched (its SpoEvents in the one
+    // graph) and group the touched doc IRIs by commit. This replaces the
+    // retired git:changed changeset strings with the real thing.
     const commitUris = rows.map(r => `<${r.c}>`).join(' ');
     const changes = await sparql(`
-        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-        SELECT ?c ?changed WHERE {
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+        SELECT ?c ?doc WHERE {
             VALUES ?c { ${commitUris} }
-            ?c git:changed ?changed .
+            GRAPH <${ONE_GRAPH}> {
+                ?e rdf:reifies <<( ?doc ?p ?v )>> .
+                { ?e gl:assertedIn ?c } UNION { ?e gl:retractedIn ?c }
+            }
         }
     `);
 
-    // Group changed paths by commit, derive (count, top folder).
+    // Group touched docs by commit. Doc IRIs derive from repo paths
+    // (https://repolex.ai/<repo>/<path>), so the relative path is the IRI
+    // minus scheme+host+repo segment.
     const byCommit = {};
     changes.forEach(row => {
         const c = row.c;
-        // git:changed values look like .../changeset/<sha>/path/to/file
-        // Strip the changeset prefix to get the on-disk path.
-        const m = (row.changed || '').match(/\/changeset\/[a-f0-9]+\/(.+)$/);
-        const path = m ? m[1] : (row.changed || '');
+        const segs = (row.doc || '').replace(/^https?:\/\/[^/]+\//, '').split('/');
+        const path = segs.slice(1).join('/') || segs.join('/');
         if (!byCommit[c]) byCommit[c] = [];
-        byCommit[c].push(path);
+        if (!byCommit[c].includes(path)) byCommit[c].push(path);
     });
 
     return rows.map(r => {
@@ -553,7 +587,7 @@ async function loadRecentCommits(limit = 30) {
         const count = paths.length;
         let hint = '';
         if (count > 0) {
-            // Find the most common top-level folder among the changed paths.
+            // Find the most common top-level folder among the touched docs.
             // Skip .lex internal noise so user-visible folders win when present.
             const folderCounts = {};
             paths.forEach(p => {
@@ -567,7 +601,7 @@ async function loadRecentCommits(limit = 30) {
             const pick = (userEntries.length ? userEntries : entries)
                 .sort((a, b) => b[1] - a[1])[0];
             const topFolder = pick ? pick[0] : '';
-            hint = `+${count} file${count === 1 ? '' : 's'}`;
+            hint = `~${count} doc${count === 1 ? '' : 's'}`;
             if (topFolder) hint += ` · ${topFolder}/`;
         }
 
@@ -575,7 +609,7 @@ async function loadRecentCommits(limit = 30) {
             id: r.c,
             message: (r.msg || '').split('\n')[0].substring(0, 100),
             author: r.author || '',
-            when: formatDate(r.date),
+            when: formatDate(r.when),
             changedHint: hint,
             files: paths.filter(p => !p.startsWith('.lex/')).slice(0, 20),
         };
@@ -676,51 +710,31 @@ function pickCanonicalType(types) {
 }
 
 async function loadGraph() {
-    // Scope queries to <repo>/now — the canonical "current state" graph.
-    // Excludes /sync/{sha} and /changeset/{sha} which materialize per-commit
-    // deltas and would inflate degree counts via default-graph union.
+    // Render-ready rows from the serve viz routes (Rob's ruling: the data
+    // hands structure to the web side — no client-side munging). nodes =
+    // every typed doc in the now view INCLUDING orphans, with the display
+    // label computed server-side (gl:name when present, else IRI tail).
+    // edges = one row per md:linksTo; `target` is always a string and
+    // `resolved` a boolean — the JS branches on the bool column, never on
+    // RDF term kinds.
+    const [nodeRows, edgeRows] = await Promise.all([
+        fetch(API + '/api/viz/nodes').then(r => r.json()).then(d => d.results || []).catch(() => []),
+        fetch(API + '/api/viz/edges').then(r => r.json()).then(d => d.results || []).catch(() => []),
+    ]);
+    const MD_LINKS_TO = 'https://repolex.ai/ontology/git-lex/md/linksTo';
+    const edges = edgeRows.map(r => ({
+        s: r.from,
+        o: r.target,
+        p: MD_LINKS_TO,
+        resolved: r.resolved === 'true' || r.resolved === true,
+    }));
 
-    // Nodes are anything with an fm:path (universal — the extractor emits it
-    // for every doc). Title is optional; falls back to shortName(IRI) when
-    // absent. Soul-kit and other class-keyed kits don't emit fm:title.
-    const rawNodes = await sparql(`
-        PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
-        SELECT DISTINCT ?s ?type ?title WHERE {
-            GRAPH ?g {
-                ?s a ?type ; fm:path ?path .
-                OPTIONAL { ?s fm:title ?title }
-            }
-            FILTER(STRENDS(STR(?g), "/now"))
-        }
-    `);
-
-    // Edges: any predicate whose subject AND object are both extracted docs
-    // (i.e. both have an fm:path). Captures lex:mentions / lex:linksTo (body
-    // wikilinks) plus any kit owl:ObjectProperty that resolved to an entity
-    // IRI (e.g. soul:relatedTo).
-    const edges = await sparql(`
-        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
-        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-        SELECT DISTINCT ?s ?p ?o WHERE {
-            GRAPH ?g {
-                ?s ?p ?o .
-                ?s fm:path ?sp .
-                ?o fm:path ?op .
-                FILTER(?s != ?o)
-                FILTER(?p != rdf:type)
-                FILTER(!STRSTARTS(STR(?p), STR(fm:)))
-                FILTER(!STRSTARTS(STR(?p), STR(git:)))
-            }
-            FILTER(STRENDS(STR(?g), "/now"))
-        }
-    `);
-
-    // Group raw rows by subject so we can pick a canonical type.
+    // Group raw rows by subject so we can pick a canonical type (a doc with
+    // several types produces one row per type).
     const bySubject = {};
-    rawNodes.forEach(r => {
-        if (!bySubject[r.s]) bySubject[r.s] = { id: r.s, types: [], title: r.title };
-        bySubject[r.s].types.push(r.type);
+    nodeRows.forEach(r => {
+        if (!bySubject[r.id]) bySubject[r.id] = { id: r.id, types: [], title: r.label };
+        bySubject[r.id].types.push(r.type);
     });
 
     // Resolve canonical type per subject; drop subjects with no visible type.
@@ -795,6 +809,26 @@ async function loadGraph() {
         return node;
     });
 
+    // Unresolved wikilink targets (resolved=false) become dead-end stub
+    // nodes with dashed edges — links to docs that don't exist yet stay
+    // VISIBLE instead of being silently dropped. Resolved targets missing
+    // from nodeById are cross-graph refs; those still drop.
+    const STUB_CLASS = {
+        uri: 'about:unresolved-link', name: '(unresolved link)',
+        color: '#555', enabled: true, count: 0,
+    };
+    edges.filter(e => !e.resolved && e.s !== e.o && !nodeById[e.o]).forEach(e => {
+        if (!STUB_CLASS.count) graphState.classes.push(STUB_CLASS);
+        STUB_CLASS.count++;
+        nodeById[e.o] = {
+            id: e.o, label: e.o, type: STUB_CLASS.uri, typeName: STUB_CLASS.name,
+            color: STUB_CLASS.color,
+            x: (Math.random() - 0.5) * 400, y: (Math.random() - 0.5) * 400,
+            vx: 0, vy: 0, size: 5, degree: 0, stub: true,
+        };
+        graphState.nodes.push(nodeById[e.o]);
+    });
+
     // Build predicate palette from the edges we'll actually keep.
     const predicateMap = {};
     edges.forEach(e => {
@@ -820,7 +854,8 @@ async function loadGraph() {
                 target: nodeById[e.o],
                 predicate: e.p,
                 predicateName: pred.name,
-                color: pred.color,
+                color: e.resolved ? pred.color : STUB_CLASS.color,
+                dashed: !e.resolved,
             };
         });
 
@@ -1089,10 +1124,13 @@ function drawGraph() {
         const tx = e.target.x - ux * e.target.size;
         const ty = e.target.y - uy * e.target.size;
 
+        // Unresolved-link edges render dashed (dead-end stubs).
+        if (e.dashed) gctx.setLineDash([4, 3]);
         gctx.beginPath();
         gctx.moveTo(sx, sy);
         gctx.lineTo(tx, ty);
         gctx.stroke();
+        if (e.dashed) gctx.setLineDash([]);
 
         // Arrow head — simple filled triangle pointing along (ux, uy).
         const ah = Math.max(6, 8 / graphState.zoom);
@@ -1227,10 +1265,10 @@ function focusNeighborhood(rootId, hops) {
 // canvas) → opens a second card to the left of the detail card showing the
 // rendered markdown of that node's underlying file.
 //
-// Sketched against the contract: GET /api/file?uri=<encoded-iri> returns
-// { content: string, frontmatter?: string } as JSON. W4R3Z hasn't shipped
-// the endpoint yet — until then we render a graceful stub showing the URI
-// and the predicted endpoint URL so the user sees the wiring is real.
+// Contract: GET /api/file?uri=<encoded-iri> returns
+// { content: string, frontmatter?: string } as JSON, or
+// { error: string } when the IRI isn't resolvable in this store
+// (e.g. cross-repo references whose target file isn't extracted here).
 
 function openMarkdownViewer(node) {
     const viewer = document.getElementById('graph-md-viewer');
@@ -1254,7 +1292,7 @@ function openMarkdownViewer(node) {
         })
         .then(data => {
             // /api/file returns 200 with {error: "…"} when the IRI isn't in
-            // the store (e.g. "no fm:path for this IRI"). The !r.ok check
+            // the store (e.g. "no git2:path for this IRI"). The !r.ok check
             // above doesn't catch that, so we'd silently render an empty
             // body. Surface the error via the same stub path that HTTP
             // errors take.
@@ -1279,9 +1317,10 @@ function renderMarkdownInto(viewer, data, node) {
 
 // Resolve a wikilink target string (e.g. "w4r3z", "project/git-lex",
 // "pod-3") to a document IRI + display label via SPARQL. Strategy:
-//   1. Exact path match on fm:path (handles "project/git-lex")
-//   2. Ends-with path match on fm:path (handles bare "w4r3z" → "agent/w4r3z.md")
-//   3. Exact title match on fm:title (handles prose-case wikilinks)
+//   1. Ends-with match on the doc IRI (IRIs derive from repo paths, so
+//      this handles both "project/git-lex" and bare "w4r3z")
+//   2. Exact label match on gl:name (canonical one-graph label)
+//   3. Exact title match on fm:title (prose-case wikilinks)
 // First hit wins. Returns { id, label } or null.
 async function resolveWikilink(target) {
     if (!target) return null;
@@ -1295,21 +1334,28 @@ async function resolveWikilink(target) {
     const pathWithMd = esc(t + '.md');
     const titleLit = esc(t);
 
+    // Doc IRIs derive from repo paths, so the path arm matches the IRI tail
+    // directly (fm:path is gone under one-graph). Label arms: gl:name is the
+    // canonical label; fm:title survives for title-carrying frontmatter.
     const query = `
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
         PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
         SELECT ?s ?label WHERE {
-            {
-                ?s fm:path ?path .
-                FILTER(
-                    LCASE(STR(?path)) = LCASE("${pathWithMd}") ||
-                    STRENDS(LCASE(STR(?path)), LCASE("/${pathWithMd}"))
-                )
-                OPTIONAL { ?s fm:title ?t }
-                BIND(COALESCE(?t, "${titleLit}") AS ?label)
-            } UNION {
-                ?s fm:title ?title .
-                FILTER(LCASE(STR(?title)) = LCASE("${titleLit}"))
-                BIND(?title AS ?label)
+            GRAPH <${NOW_GRAPH}> {
+                {
+                    ?s a ?type .
+                    FILTER(STRENDS(LCASE(STR(?s)), LCASE("/${pathWithMd}")))
+                    OPTIONAL { ?s gl:name ?n }
+                    BIND(COALESCE(?n, "${titleLit}") AS ?label)
+                } UNION {
+                    ?s gl:name ?name .
+                    FILTER(LCASE(STR(?name)) = LCASE("${titleLit}"))
+                    BIND(?name AS ?label)
+                } UNION {
+                    ?s fm:title ?title .
+                    FILTER(LCASE(STR(?title)) = LCASE("${titleLit}"))
+                    BIND(?title AS ?label)
+                }
             }
         } LIMIT 1`;
 
@@ -1365,19 +1411,38 @@ function attachWikilinkHandlers(body) {
 
 function renderMarkdownStub(viewer, node, err) {
     const body = viewer.querySelector('.md-body');
+    const msg = (err && err.message) || '';
+    // /api/file returns { error: "no <path-predicate> for this IRI" } when
+    // the IRI is referenced from this store but the underlying file isn't
+    // extracted here (typical: cross-repo wikilink target — the squad
+    // referenced this doc, but the squad's repo isn't cloned alongside this
+    // soul). Match the stable suffix, not the predicate name — the path
+    // predicate moved fm:path → git2:path across the one-graph cutover.
+    const isCrossRepo = /no [^ ]+ for this IRI/.test(msg);
+    if (isCrossRepo) {
+        body.innerHTML = `
+            <div class="md-error">file not in this store</div>
+            <div class="md-stub-note">
+                This entity is referenced from this repo (e.g. via a wikilink
+                or squad relation), but the file itself lives in another repo
+                that isn't extracted here. Clone the source repo alongside this
+                one and re-sync to make it browsable.
+                <br><br>
+                URI: <code>${escapeHtml(node.id)}</code>
+            </div>
+        `;
+        return;
+    }
+    // Real backend / network failure.
     body.innerHTML = `
-        <div class="md-error">file viewer endpoint not yet available</div>
+        <div class="md-error">file viewer unavailable</div>
         <div class="md-stub-note">
-            Double-click jumps to the markdown for this entity.
+            Couldn't fetch the file from <code>/api/file</code>. The viz
+            server may be stopped or unreachable.
             <br><br>
             URI: <code>${escapeHtml(node.id)}</code>
             <br><br>
-            Wiring expects <code>GET /api/file?uri=&lt;iri&gt;</code> returning
-            <code>{ content, frontmatter? }</code>. Endpoint is queued for the
-            next sync of this pod's backend work; UI is shipped against the
-            contract so it'll light up the moment the server responds.
-            <br><br>
-            <span style="color:#bbb;font-size:0.6rem">${escapeHtml(err && err.message || '')}</span>
+            <span style="color:#bbb;font-size:0.6rem">${escapeHtml(msg)}</span>
         </div>
     `;
 }
@@ -2023,52 +2088,19 @@ function resizeHistoryCanvas() {
     hist.ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
 }
 
-// Auto-detect history graph URI by probing for annotation triples
+// The one graph has the same IRI in every git-lex repo on earth
+// (2026_07_21_ONE_GRAPH_AS_SHIPPED.md), so "detection" is just "does it
+// hold statement events" — the old per-repo URI probing dance is gone.
 async function detectHistoryGraph() {
-    // First, find the repo base URI independently
-    let base = '';
-    const meta = await sparql(`
-        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-        SELECT ?repo WHERE { ?repo a git:Repo } LIMIT 1
-    `);
-    if (meta[0]) base = meta[0].repo;
-
-    // If no Repo entity, try to derive from a commit URI
-    if (!base) {
-        const sample = await sparql(`
-            PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-            SELECT ?c WHERE { ?c a git:Commit } LIMIT 1
-        `);
-        if (sample[0]) {
-            const m = sample[0].c.match(/^(https?:\/\/[^/]+\/[^/]+\/[^/]+)\//);
-            if (m) base = m[1];
-        }
-    }
-
-    // Probe standard graph names in order of preference
-    const candidates = base
-        ? [`<${base}/history>`, `<${base}/historytest>`]
-        : [];
-
-    for (const g of candidates) {
-        const probe = await sparql(`
-            PREFIX spo: <https://repolex.ai/ontology/spo/>
-            SELECT (COUNT(*) AS ?n) WHERE {
-                GRAPH ${g} { ?ann spo:addedIn ?c }
+    const probe = await sparql(`
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+        SELECT (COUNT(*) AS ?n) WHERE {
+            GRAPH <${ONE_GRAPH}> {
+                { ?e gl:assertedIn ?c } UNION { ?e gl:retractedIn ?c }
             }
-        `);
-        if (probe[0] && parseInt(probe[0].n) > 0) return g;
-    }
-
-    // Wildcard: find any named graph that has spo:addedIn
-    const wild = await sparql(`
-        PREFIX spo: <https://repolex.ai/ontology/spo/>
-        SELECT DISTINCT ?g WHERE {
-            GRAPH ?g { ?ann spo:addedIn ?c }
-        } LIMIT 1
+        }
     `);
-    if (wild[0]) return `<${wild[0].g}>`;
-
+    if (probe[0] && parseInt(probe[0].n) > 0) return `<${ONE_GRAPH}>`;
     return null;
 }
 
@@ -2078,53 +2110,39 @@ async function initHistory() {
     hist.ctx = hist.canvas.getContext('2d');
     resizeHistoryCanvas();
 
-    // Detect the history graph
+    // Detect statement history
     hist.graphUri = await detectHistoryGraph();
     if (!hist.graphUri) {
         document.getElementById('hist-msg').textContent =
-            'no history graph found — run git lex history rebuild';
+            'no statement history found — run git lex sync';
         return;
     }
 
-    // Load commit list from history graph
+    // Commits that produced statement events, joined to the commits graph
+    // for ordinal + date + summary. This is the canonical one-graph ⋈
+    // commits join from `git lex log` (cmd_log). g2:ordinalDerived is the
+    // ordering authority — author dates can tie or lie under rebase/amend.
     const rows = await sparql(`
-        PREFIX spo: <https://repolex.ai/ontology/spo/>
-        SELECT DISTINCT ?commit WHERE {
-            GRAPH ${hist.graphUri} {
-                { ?ann spo:addedIn ?commit }
-                UNION
-                { ?ann spo:removedIn ?commit }
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+        PREFIX g2: <https://repolex.ai/ontology/git-lex/git2/>
+        SELECT DISTINCT ?commit ?ord ?when ?msg WHERE {
+            GRAPH <${ONE_GRAPH}> {
+                { ?e gl:assertedIn ?commit } UNION { ?e gl:retractedIn ?commit }
             }
-        }
+            GRAPH <${COMMITS_GRAPH}> {
+                ?commit g2:ordinalDerived ?ord ; g2:author ?sig .
+                ?sig g2:xsdDateTimeDerived ?when .
+                OPTIONAL { ?commit g2:summary ?msg }
+            }
+        } ORDER BY ?ord
     `);
-
-    // Try to get dates + messages from git commit graph. Predicate is
-    // git:authoredDate (past participle) — this is what the git extractor
-    // emits. Earlier code used git:authorDate which returns zero rows and
-    // silently breaks chronological sort below.
-    const meta = await sparql(`
-        PREFIX git: <https://repolex.ai/ontology/git-lex/git/>
-        SELECT ?c ?date ?msg WHERE {
-            ?c a git:Commit .
-            OPTIONAL { ?c git:authoredDate ?date }
-            OPTIONAL { ?c git:message ?msg }
-        }
-    `);
-    const dateMap = {}, msgMap = {};
-    meta.forEach(r => {
-        dateMap[r.c] = r.date || '';
-        msgMap[r.c] = (r.msg || '').split('\n')[0].substring(0, 120);
-    });
 
     hist.commits = rows.map(r => ({
         uri: r.commit,
         sha: r.commit.split('/').pop().substring(0, 8),
-        date: dateMap[r.commit] || '',
-        message: msgMap[r.commit] || '',
+        date: r.when || '',
+        message: (r.msg || '').split('\n')[0].substring(0, 120),
     }));
-    if (hist.commits.some(c => c.date)) {
-        hist.commits.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-    }
 
     document.getElementById('hist-counter').textContent = `0 / ${hist.commits.length}`;
     document.getElementById('hist-msg').textContent =
@@ -2173,17 +2191,17 @@ async function histStep() {
     const commit = hist.commits[hist.idx];
     const events = await sparql(`
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX spo: <https://repolex.ai/ontology/spo/>
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
         SELECT ?s ?p ?o ?op WHERE {
             GRAPH ${hist.graphUri} {
-                ?ann rdf:reifies <<( ?s ?p ?o )>> .
+                ?e rdf:reifies <<( ?s ?p ?o )>> .
                 {
-                    ?ann spo:addedIn <${commit.uri}> .
+                    ?e gl:assertedIn <${commit.uri}> .
                     BIND("+" AS ?op)
                 }
                 UNION
                 {
-                    ?ann spo:removedIn <${commit.uri}> .
+                    ?e gl:retractedIn <${commit.uri}> .
                     BIND("-" AS ?op)
                 }
             }
@@ -2205,20 +2223,18 @@ async function histStep() {
     }
 
     const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
-    const GIT_PREFIX = 'https://repolex.ai/ontology/git-lex/git/';
     const FM_PREFIX = 'https://repolex.ai/ontology/git-lex/fm/';
     events.forEach(e => {
         // Exact match — substring ".includes('type')" matched git:changeType,
         // git:type, future *.contentType, etc.
         const isType = e.p === RDF_TYPE;
-        // Edges connect two extracted docs. Skip rdf:type, anything in the
-        // git/ infrastructure namespace, and frontmatter literal predicates
-        // even when they happen to carry an http-URI value.
+        // Edges connect two extracted docs. SpoEvents only reify sidecar
+        // facts (kit props, md links, frontmatter), so no git-machinery
+        // filtering is needed anymore — just skip rdf:type and frontmatter
+        // literal predicates even when they happen to carry an http-URI value.
         const isEdge = e.o && e.o.startsWith('http') &&
             e.p !== RDF_TYPE &&
-            !e.p.startsWith(GIT_PREFIX) &&
-            !e.p.startsWith(FM_PREFIX) &&
-            !e.p.includes('/spo/');
+            !e.p.startsWith(FM_PREFIX);
 
         if (e.op === '+') {
             adds++;
@@ -2535,19 +2551,15 @@ function initSyncButton() {
     });
 }
 
-// Store-snapshot pill — visibility nerf against the silent staleness
-// bug documented in brief/2026-04-09-sparql-endpoint-and-live-store.md.
-// The viz server opens oxigraph as a read-only snapshot at startup and
-// never sees later writes until restart. Until W4R3Z ships the real fix
-// (per-query reopen + /api/reload), this pill surfaces the age of the
-// snapshot so users know when they're looking at stale data.
+// Store-inventory pill — speaks the shipped /api/store-info contract
+// (git-lex-serve 72e9766, one-graph model): { graphs, one_graph, now_view,
+// model }. `graphs` is per-graph quad counts in the flat rows format
+// ({results: [{g, n}]}). Shows graph + quad totals in the pill; the full
+// per-graph inventory and model identifier live in the tooltip. If the
+// endpoint 404s (pre-one-graph server) the pill hides itself.
 //
-// Contract (GET /api/store-info): { snapshot_at: "<ISO-8601>" }. Any
-// other fields fine, only snapshot_at is required. If the endpoint
-// 404s the pill hides itself — no-op until W4R3Z ships the endpoint.
-//
-// Sketch contributed by @M3RCUR14L (2026-04-09), ported into git-lex-viz
-// styling for visual consistency with the typewriter palette.
+// Pill sketch originally contributed by @M3RCUR14L (2026-04-09) as a
+// staleness indicator; rebuilt for the one-graph inventory contract.
 async function updateSnapshotPill() {
     const el = document.getElementById('store-snapshot');
     const ageEl = document.getElementById('store-snapshot-age');
@@ -2556,25 +2568,19 @@ async function updateSnapshotPill() {
         const r = await fetch('/api/store-info');
         if (!r.ok) return;  // leaves pill hidden — graceful degrade
         const info = await r.json();
-        if (!info || !info.snapshot_at) return;
-        const ts = new Date(info.snapshot_at);
-        if (isNaN(ts.getTime())) return;
+        const rows = (info && info.graphs && info.graphs.results) || [];
+        if (!rows.length) return;
+        const counts = rows.map(row => ({
+            g: row.g || '',
+            n: parseInt(row.n) || 0,
+        }));
+        const total = counts.reduce((sum, row) => sum + row.n, 0);
         el.hidden = false;
-        function renderAge() {
-            const mins = Math.floor((Date.now() - ts.getTime()) / 60000);
-            let label;
-            if (mins < 1) label = 'just now';
-            else if (mins < 60) label = mins + 'm ago';
-            else if (mins < 1440) label = Math.floor(mins / 60) + 'h ago';
-            else label = Math.floor(mins / 1440) + 'd ago';
-            ageEl.textContent = label;
-            el.classList.toggle('stale', mins >= 10);
-            el.classList.toggle('very-stale', mins >= 60);
-            el.title = 'Data snapshot taken ' + ts.toISOString() +
-                '. Any writes since then won\'t show until server reload.';
-        }
-        renderAge();
-        setInterval(renderAge, 30000);
+        ageEl.textContent =
+            `${counts.length} graph${counts.length === 1 ? '' : 's'} · ` +
+            `${total.toLocaleString()} quads`;
+        el.title = (info.model ? info.model + '\n\n' : '') +
+            counts.map(row => `${row.n.toLocaleString()}  ${row.g}`).join('\n');
     } catch (e) {
         // Network error or malformed response — leave pill hidden.
     }
