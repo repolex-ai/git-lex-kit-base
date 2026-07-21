@@ -714,9 +714,10 @@ async function loadGraph() {
     // hands structure to the web side — no client-side munging). nodes =
     // every typed doc in the now view INCLUDING orphans, with the display
     // label computed server-side (gl:name when present, else IRI tail).
-    // edges = one row per md:linksTo; `target` is always a string and
-    // `resolved` a boolean — the JS branches on the bool column, never on
-    // RDF term kinds.
+    // edges = one row per link — md:linksTo plus every kit object-property
+    // connecting two docs — as {from, predicate, target, resolved}. `target`
+    // is always a string and `resolved` a boolean; the JS branches on the
+    // bool column, never on RDF term kinds.
     const [nodeRows, edgeRows] = await Promise.all([
         fetch(API + '/api/viz/nodes').then(r => r.json()).then(d => d.results || []).catch(() => []),
         fetch(API + '/api/viz/edges').then(r => r.json()).then(d => d.results || []).catch(() => []),
@@ -725,7 +726,8 @@ async function loadGraph() {
     const edges = edgeRows.map(r => ({
         s: r.from,
         o: r.target,
-        p: MD_LINKS_TO,
+        // Fallback keeps compat with a pre-predicate-column server.
+        p: r.predicate || MD_LINKS_TO,
         resolved: r.resolved === 'true' || r.resolved === true,
     }));
 
