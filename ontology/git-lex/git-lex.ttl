@@ -28,7 +28,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.6" .
+    owl:versionInfo "0.7" .
 
 # =============================================================================
 # Classes
@@ -41,7 +41,12 @@ git-lex:Document a owl:Class ;
 git-lex:NamedGraph a owl:Class ;
     rdfs:subClassOf sd:NamedGraph ;
     rdfs:label "NamedGraph" ;
-    rdfs:comment "A named graph git-lex maintains in a repo's knowledge base (e.g. the live 'now' graph and the 'history' graph). Instance IRIs are derived under the git-lex application slug — https://repolex.ai/git-lex/NamedGraph/now, .../NamedGraph/history — and typed against this class in the default graph for zero-knowledge discovery. Note the two-resources distinction: the NamedGraph OBJECT (this IRI) is the queryable thing that describes the graph; the graph it names is carried via sd:name. Anchored to the W3C SPARQL Service Description sd:NamedGraph — the one external supertype git-lex adopts, because it is a real standard class, not an invented layer." .
+    rdfs:comment "A named graph git-lex maintains in a repo's knowledge base. Instance IRIs are derived under the git-lex application slug and typed against this class in the default graph for zero-knowledge discovery. Note the two-resources distinction: the NamedGraph OBJECT (this IRI) is the queryable thing that describes the graph; the graph it names is carried via sd:name. Anchored to the W3C SPARQL Service Description sd:NamedGraph — the one external supertype git-lex adopts, because it is a real standard class, not an invented layer." .
+
+git-lex:LexHistoryGraph a owl:Class ;
+    rdfs:subClassOf git-lex:NamedGraph ;
+    rdfs:label "LexHistoryGraph" ;
+    rdfs:comment "The one graph: a repo's statement history as a named graph — base facts alongside the SpoEvents that record their lifecycle. 'Now' is a view derived from it (see git-lex:SpoEvent). Distinct by name from the retired legacy history graph." .
 
 # =============================================================================
 # Properties
