@@ -29,7 +29,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.5" .
+    owl:versionInfo "0.6" .
 
 # =============================================================================
 # Classes
@@ -51,7 +51,72 @@ git-lex:NamedGraph a owl:Class ;
 git-lex:name a owl:DatatypeProperty ;
     rdfs:label "name" ;
     rdfs:range xsd:string ;
-    rdfs:comment "Human-readable name for a tracked document." .
+    rdfs:comment "Human-readable name. Used on tracked documents, and on the repo node (repo.yml `name:`)." .
+
+# =============================================================================
+# The repo (git-lex:Repo)
+# =============================================================================
+# What git-lex knows about the repository it manages, beyond what git2 sees.
+# One property per .lex/repo.yml key — what's in repo.yml is what's queryable,
+# no curation layer. The node keeps its ruled IRI
+# (git-lex/git2/Repository/<genesisSha>) and carries BOTH types
+# (git-lex:Repo + git2:Repository) — the path names the git2-layer identity,
+# the git-lex type adds the management layer. repo.yml's `first_commit` does
+# NOT become a property: it IS genesisSha (computed from git; the yml
+# duplicate retires in config cleanup). `name` is git-lex:name above.
+
+git-lex:Repo a owl:Class ;
+    rdfs:subClassOf git2:Repository ;
+    rdfs:label "Repo" ;
+    rdfs:comment "A git repository under git-lex management: a git2:Repository that additionally carries .lex/repo.yml — its kit, genesis identity, and the repo facts git-lex itself maintains." .
+
+git-lex:genesisSha a owl:DatatypeProperty ;
+    rdfs:domain git-lex:Repo ;
+    rdfs:range xsd:string ;
+    rdfs:label "genesisSha" ;
+    rdfs:comment "The full 40-character SHA of the repository's first (genesis) commit — the repo's stable identity across renames and remotes, and the derivation of its node IRI. Computed from git; git2 has no genesis concept, so the concept is git-lex's." .
+
+git-lex:kit a owl:DatatypeProperty ;
+    rdfs:domain git-lex:Repo ;
+    rdfs:range xsd:string ;
+    rdfs:label "kit" ;
+    rdfs:comment "The base kit installed in this repo (repo.yml `kit:`), e.g. repolex-ai/git-lex-kit-soul." .
+
+git-lex:created a owl:DatatypeProperty ;
+    rdfs:domain git-lex:Repo ;
+    rdfs:range xsd:date ;
+    rdfs:label "created" ;
+    rdfs:comment "When the repo was initialized by git-lex (repo.yml `created:`)." .
+
+git-lex:agentName a owl:DatatypeProperty ;
+    rdfs:domain git-lex:Repo ;
+    rdfs:range xsd:string ;
+    rdfs:label "agentName" ;
+    rdfs:comment "The agent this repo belongs to (repo.yml `agent_name:`)." .
+
+git-lex:agentEmail a owl:DatatypeProperty ;
+    rdfs:domain git-lex:Repo ;
+    rdfs:range xsd:string ;
+    rdfs:label "agentEmail" ;
+    rdfs:comment "The agent's email (repo.yml `agent_email:`)." .
+
+git-lex:version a owl:DatatypeProperty ;
+    rdfs:domain git-lex:Repo ;
+    rdfs:range xsd:string ;
+    rdfs:label "version" ;
+    rdfs:comment "The repo config version (repo.yml `version:`)." .
+
+git-lex:optionalKit a owl:DatatypeProperty ;
+    rdfs:domain git-lex:Repo ;
+    rdfs:range xsd:string ;
+    rdfs:label "optionalKit" ;
+    rdfs:comment "An optional kit installed in this repo (repo.yml `optional_kits:`). Multi-valued — one triple per kit." .
+
+git-lex:substrate a owl:DatatypeProperty ;
+    rdfs:domain git-lex:Repo ;
+    rdfs:range xsd:string ;
+    rdfs:label "substrate" ;
+    rdfs:comment "A harness substrate declared for this repo (repo.yml `substrates:`). Multi-valued — one triple per substrate." .
 
 # =============================================================================
 # The statement ledger (SpoEvent)
