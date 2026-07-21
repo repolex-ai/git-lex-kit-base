@@ -24,8 +24,8 @@
 
 <https://repolex.ai/ontology/git-lex/git2/> a owl:Ontology ;
     rdfs:label "git-lex git2 Ontology" ;
-    rdfs:comment "A verbatim mirror of the git2 (libgit2) object model, for the git2 objects git-lex reads. Classes = git2 types, properties = git2 accessors." ;
-    owl:versionInfo "0.1.0" .
+    rdfs:comment "A verbatim mirror of the git2 (libgit2) object model, for the git2 objects git-lex reads. Classes = git2 types, properties = git2 accessors. The one derived (non-library) value is named as such: git2:xsdDateTimeDerived." ;
+    owl:versionInfo "0.2.0" .
 
 # =============================================================================
 # Classes (git2 type → git2: class)
@@ -161,11 +161,30 @@ git2:email a owl:DatatypeProperty ;
     rdfs:label "email" ;
     rdfs:comment "The signature's email (git2 Signature `email()`)." .
 
-git2:when a owl:DatatypeProperty ;
+# --- time: the raw pair is the library (and git's own stored bytes); the
+#     dateTime is git-lex's derivation, and its name says so. git2's Time
+#     offers exactly seconds() + offset_minutes() and NO datetime conversion;
+#     a commit object literally stores "1626754800 +0200". (Time::sign() is
+#     not modelled — derivable from offsetMinutes' sign.) A commit's
+#     author-time and commit-time each live on their respective Signature. ---
+
+git2:seconds a owl:DatatypeProperty ;
+    rdfs:domain git2:Signature ;
+    rdfs:range xsd:integer ;
+    rdfs:label "seconds" ;
+    rdfs:comment "Seconds since epoch — raw, library-native (git2 Time `seconds()`, via Signature `when()`). This is the value git itself stores in the commit bytes." .
+
+git2:offsetMinutes a owl:DatatypeProperty ;
+    rdfs:domain git2:Signature ;
+    rdfs:range xsd:integer ;
+    rdfs:label "offsetMinutes" ;
+    rdfs:comment "Timezone offset in minutes — raw, library-native (git2 Time `offset_minutes()`, via Signature `when()`). Negative for west of UTC." .
+
+git2:xsdDateTimeDerived a owl:DatatypeProperty ;
     rdfs:domain git2:Signature ;
     rdfs:range xsd:dateTime ;
-    rdfs:label "when" ;
-    rdfs:comment "The signature's time (git2 Signature `when()`). A commit's author-time and commit-time each live on their respective signature." .
+    rdfs:label "xsdDateTimeDerived" ;
+    rdfs:comment "DERIVED — not a library value. The signature's time as an xsd:dateTime, computed by git-lex from git2:seconds + git2:offsetMinutes. git2 (and git itself) provide only the raw pair; this conversion exists for query ergonomics, and its name carries its status so it is never mistaken for a git2 accessor." .
 
 # =============================================================================
 # IndexEntry properties (git2::IndexEntry fields)
