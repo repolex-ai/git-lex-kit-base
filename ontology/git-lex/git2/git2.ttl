@@ -24,8 +24,8 @@
 
 <https://repolex.ai/ontology/git-lex/git2/> a owl:Ontology ;
     rdfs:label "git-lex git2 Ontology" ;
-    rdfs:comment "A verbatim mirror of the git2 (libgit2) object model, for the git2 objects git-lex reads. Classes = git2 types, properties = git2 accessors. The one derived (non-library) value is named as such: git2:xsdDateTimeDerived." ;
-    owl:versionInfo "0.2.0" .
+    rdfs:comment "A verbatim mirror of the git2 (libgit2) object model, for the git2 objects git-lex reads. Classes = git2 types, properties = git2 accessors. Derived (non-library) values are named as such: git2:xsdDateTimeDerived, git2:ordinalDerived." ;
+    owl:versionInfo "0.3.0" .
 
 # =============================================================================
 # Classes (git2 type → git2: class)
@@ -144,6 +144,12 @@ git2:parent a owl:ObjectProperty ;
     rdfs:range git2:Commit ;
     rdfs:label "parent" ;
     rdfs:comment "A parent commit (git2 `parent_ids()`). A merge commit has more than one." .
+
+git2:ordinalDerived a owl:DatatypeProperty ;
+    rdfs:domain git2:Commit ;
+    rdfs:range xsd:integer ;
+    rdfs:label "ordinalDerived" ;
+    rdfs:comment "DERIVED — not a library value. The commit's position in the repository's topological walk order (1 = genesis), stamped by git-lex at sync. git2 (and git itself) do not number commits; this exists as the ordering authority for latest-event-wins, where author dates can tie or lie (rebase/amend)." .
 
 git2:file a owl:ObjectProperty ;
     rdfs:domain git2:Commit ;
