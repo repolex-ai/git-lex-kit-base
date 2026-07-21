@@ -1,4 +1,6 @@
 @prefix git-lex: <https://repolex.ai/ontology/git-lex/> .
+@prefix git2:    <https://repolex.ai/ontology/git-lex/git2/> .
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix owl:     <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
@@ -14,9 +16,10 @@
 # Namespace: git-lex: = https://repolex.ai/ontology/git-lex/
 #
 # Kept deliberately small: git-lex tracks markdown files and types each as a
-# Document. Everything else about a file's git identity lives in git:, its
-# markdown body in md:, its frontmatter keys in fm:. This file holds only what
-# git-lex itself asserts about a tracked document.
+# Document; its statement ledger records each statement's lifecycle as
+# SpoEvents. Everything else about a file's git identity lives in the git
+# parser namespace, its markdown body in md:, its frontmatter keys in fm:.
+# This file holds only git-lex's own machinery.
 #
 # (Formerly the lex: namespace. lex: was invented only to name "the app's own
 # vocabulary" when git-lex/git-lex looked redundant — it was never needed; the
@@ -26,7 +29,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.4" .
+    owl:versionInfo "0.5" .
 
 # =============================================================================
 # Classes
@@ -39,7 +42,7 @@ git-lex:Document a owl:Class ;
 git-lex:NamedGraph a owl:Class ;
     rdfs:subClassOf sd:NamedGraph ;
     rdfs:label "NamedGraph" ;
-    rdfs:comment "A named graph git-lex maintains in a repo's knowledge base (e.g. the live 'now' graph and the 'history' graph). Instances are minted under the git-lex application slug — https://repolex.ai/git-lex/NamedGraph/now, .../NamedGraph/history — and typed against this class in the default graph for zero-knowledge discovery. Note the two-resources distinction: the NamedGraph OBJECT (this IRI) is the queryable thing that describes the graph; the graph it names is carried via sd:name. Anchored to the W3C SPARQL Service Description sd:NamedGraph — the one external supertype git-lex adopts, because it is a real standard class, not an invented layer." .
+    rdfs:comment "A named graph git-lex maintains in a repo's knowledge base (e.g. the live 'now' graph and the 'history' graph). Instance IRIs are derived under the git-lex application slug — https://repolex.ai/git-lex/NamedGraph/now, .../NamedGraph/history — and typed against this class in the default graph for zero-knowledge discovery. Note the two-resources distinction: the NamedGraph OBJECT (this IRI) is the queryable thing that describes the graph; the graph it names is carried via sd:name. Anchored to the W3C SPARQL Service Description sd:NamedGraph — the one external supertype git-lex adopts, because it is a real standard class, not an invented layer." .
 
 # =============================================================================
 # Properties
@@ -49,3 +52,43 @@ git-lex:name a owl:DatatypeProperty ;
     rdfs:label "name" ;
     rdfs:range xsd:string ;
     rdfs:comment "Human-readable name for a tracked document." .
+
+# =============================================================================
+# The statement ledger (SpoEvent)
+# =============================================================================
+# git-lex's append-only record of every statement's lifecycle. A statement
+# (one s-p-o triple, e.g. one tag value in frontmatter) is identified by its
+# RDF 1.2 triple term <<( s p o )>> — the W3C-standard representative of a
+# statement, which needs no class of its own. What DOES need a class is the
+# EVENT: the dated fact that a statement entered or left the graph in a
+# specific commit. Everything here is derived deterministically from the
+# repo's documents and commits — nothing is created except by git itself.
+#
+#   git-lex:SpoEvent/<eventId>
+#       rdf:type            git-lex:SpoEvent ;
+#       rdf:reifies         <<( s p o )>> ;         # the statement
+#       git-lex:assertedIn  git2:Commit/<sha> .     # OR retractedIn — never both
+#
+# Structural contract (enforced by the emitter's integrity checks, not here):
+# exactly one rdf:reifies; exactly one of assertedIn XOR retractedIn. The
+# event IRI is derived from the event's identity: triple + commit + direction.
+# NOTE for emitters: Turtle 1.2's annotation syntax {| ... |} ASSERTS the base
+# triple as it annotates — usable for assert events only; a retraction must
+# reference its statement WITHOUT asserting it, so the bare reifier form above
+# is used uniformly for both directions.
+
+git-lex:SpoEvent a owl:Class ;
+    rdfs:label "SpoEvent" ;
+    rdfs:comment "One temporal event in a statement's lifecycle: the statement (identified by the rdf:reifies triple term) entered the graph (assertedIn) or left it (retractedIn) in a specific commit. The assert and any later retract of the same statement are separate events; latest-event-wins gives current state. Instances live in the history graph, never the now graph. Multivalued frontmatter is a SET of independent facts — each value is its own statement with its own independent lifecycle, diffed as resolved sets per commit; order and duplicates are not represented. Per-statement retraction is what makes multivalue work: a removed value has no superseding assertion, only its retraction event." .
+
+git-lex:assertedIn a owl:ObjectProperty ;
+    rdfs:domain git-lex:SpoEvent ;
+    rdfs:range git2:Commit ;
+    rdfs:label "asserted in" ;
+    rdfs:comment "The commit in which this statement entered the graph." .
+
+git-lex:retractedIn a owl:ObjectProperty ;
+    rdfs:domain git-lex:SpoEvent ;
+    rdfs:range git2:Commit ;
+    rdfs:label "retracted in" ;
+    rdfs:comment "The commit in which this statement left the graph. Nothing is deleted (the ledger is append-only); this event records that the statement is no longer asserted as of this commit." .
