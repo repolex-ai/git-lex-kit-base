@@ -16,8 +16,7 @@
 # Namespace: git-lex: = https://repolex.ai/ontology/git-lex/
 #
 # Kept deliberately small: git-lex tracks markdown files and types each as a
-# Document; its statement ledger records each statement's lifecycle as
-# SpoEvents. Everything else about a file's git identity lives in the git
+# Document; its SpoEvents record each statement's lifecycle. Everything else about a file's git identity lives in the git
 # parser namespace, its markdown body in md:, its frontmatter keys in fm:.
 # This file holds only git-lex's own machinery.
 #
@@ -119,7 +118,7 @@ git-lex:substrate a owl:DatatypeProperty ;
     rdfs:comment "A harness substrate declared for this repo (repo.yml `substrates:`). Multi-valued — one triple per substrate." .
 
 # =============================================================================
-# The statement ledger (SpoEvent)
+# The statement lifecycle (SpoEvent)
 # =============================================================================
 # git-lex's append-only record of every statement's lifecycle. A statement
 # (one s-p-o triple, e.g. one tag value in frontmatter) is identified by its
@@ -144,7 +143,7 @@ git-lex:substrate a owl:DatatypeProperty ;
 
 git-lex:SpoEvent a owl:Class ;
     rdfs:label "SpoEvent" ;
-    rdfs:comment "One temporal event in a statement's lifecycle: the statement (identified by the rdf:reifies triple term) entered the graph (assertedIn) or left it (retractedIn) in a specific commit. The assert and any later retract of the same statement are separate events; latest-event-wins gives current state. Instances live in the single ledger graph, alongside the base facts they chronicle. The store maintains no separate 'now' graph: within the store, 'now' is a VIEW — a query, or a materialized graph, of the latest assertions that have not been retracted — derived from this one graph. (git-lex's direct query path — an ephemeral passthrough of git's current info, never stored — is a separate concern, outside this model.) Multivalued frontmatter is a SET of independent facts — each value is its own statement with its own independent lifecycle, diffed as resolved sets per commit; order and duplicates are not represented. Per-statement retraction is what makes multivalue work: a removed value has no superseding assertion, only its retraction event." .
+    rdfs:comment "One temporal event in a statement's lifecycle: the statement (identified by the rdf:reifies triple term) entered the graph (assertedIn) or left it (retractedIn) in a specific commit. The assert and any later retract of the same statement are separate events; latest-event-wins gives current state. Instances live in the one graph, alongside the base facts they chronicle. The store maintains no separate 'now' graph: within the store, 'now' is a VIEW — a query, or a materialized graph, of the latest assertions that have not been retracted — derived from this one graph. (git-lex's direct query path — an ephemeral passthrough of git's current info, never stored — is a separate concern, outside this model.) Multivalued frontmatter is a SET of independent facts — each value is its own statement with its own independent lifecycle, diffed as resolved sets per commit; order and duplicates are not represented. Per-statement retraction is what makes multivalue work: a removed value has no superseding assertion, only its retraction event." .
 
 git-lex:assertedIn a owl:ObjectProperty ;
     rdfs:domain git-lex:SpoEvent ;
@@ -156,4 +155,4 @@ git-lex:retractedIn a owl:ObjectProperty ;
     rdfs:domain git-lex:SpoEvent ;
     rdfs:range git2:Commit ;
     rdfs:label "retracted in" ;
-    rdfs:comment "The commit in which this statement left the graph. Nothing is deleted (the ledger is append-only); this event records that the statement is no longer asserted as of this commit." .
+    rdfs:comment "The commit in which this statement left the graph. Nothing is deleted (events are append-only); this event records that the statement is no longer asserted as of this commit." .
