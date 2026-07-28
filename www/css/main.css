@@ -143,9 +143,6 @@ nav.modes {
 .sync-btn.syncing { color: var(--accent); cursor: wait; }
 
 
-.status.connected::before { content: '● '; color: #2a8a2a; }
-.status.error::before { content: '● '; color: var(--accent); }
-.status.connecting::before { content: '○ '; color: var(--ink-faint); }
 
 /* Store-snapshot pill. Shows how old the viz server's in-memory store
    handle is — because Store::open_read_only() is a snapshot-at-open,
