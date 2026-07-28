@@ -11,12 +11,10 @@
         <nav class="modes">
             <a href="#activity" class="mode-link" data-mode="activity">Recent Activity</a>
             <a href="#graph" class="mode-link" data-mode="graph">Repo Graph</a>
-            <a href="#interactive" class="mode-link" data-mode="interactive">Interactive</a>
             <a href="#history" class="mode-link" data-mode="history">History</a>
         </nav>
         <div class="sidebar-footer">
             <button class="sync-btn" id="sync-btn" title="Run git lex sync to refresh the store">sync</button>
-            <div class="status" id="status">connecting…</div>
             <div class="store-snapshot" id="store-snapshot" title="Data snapshot taken when the server started. Any writes since then won't show until reload." hidden>
                 <span class="store-snapshot-dot"></span>
                 <span class="store-snapshot-label">snapshot</span>
@@ -38,25 +36,6 @@
             <div class="graph-md-viewer" id="graph-md-viewer" hidden></div>
         </section>
 
-        <!-- Interactive (push) -->
-        <section id="view-interactive" class="view" hidden>
-            <div class="push-empty">
-                <h2>Waiting for push…</h2>
-                <p>An agent can push a visualization with:</p>
-                <pre><code>git lex viz display "&lt;sparql construct&gt;"</code></pre>
-                <p class="hint">When a push arrives, the SPARQL appears on the left and the rendering on the right.</p>
-            </div>
-            <div class="push-content" id="push-content" hidden>
-                <div class="push-source">
-                    <div class="push-source-header">
-                        <span class="label">SPARQL</span>
-                        <span class="push-time" id="push-time"></span>
-                    </div>
-                    <pre id="push-query"></pre>
-                </div>
-                <div class="push-render" id="push-render"></div>
-            </div>
-        </section>
 
         <!-- History (animated knowledge graph through time) -->
         <section id="view-history" class="view" hidden>
