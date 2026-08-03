@@ -38,10 +38,6 @@ git-lex: a owl:Ontology ;
 # Classes
 # =============================================================================
 
-git-lex:Document a owl:Class ;
-    rdfs:label "Document" ;
-    rdfs:comment "A content file git-lex tracks. The primary unit of knowledge. Every tracked .md file is a Document. RETIRING: renamed to git-lex:File on the re-anchor release (Rob-ruled 2026-07-30, Thing & File identity model) — the current emitter still types against this class, so the rename rides the release train; File below is the ruled name, inert until then." .
-
 # --- The File plane (Thing & File identity model, Rob-ruled 2026-07-30) ---
 # Two planes: every file in the repo is a File (id = its repo-relative path);
 # some files additionally express a Thing (an ontology-defined entity with its
@@ -52,7 +48,7 @@ git-lex:Document a owl:Class ;
 
 git-lex:File a owl:Class ;
     rdfs:label "File" ;
-    rdfs:comment "A file at a repo-relative path, through time. Its id IS the path, so a File node is an address, not a lifetime: content changes, deletions, and later unrelated files at the same path are all states of the address, recorded in history. IRI: git-lex/File/<path>. File-plane facts live here: prose links (wikilinks follow paths, by the path law) and free-form fm: frontmatter keys. Facts about the Thing a file expresses live on the Thing node instead (see fileId). Supersedes git-lex:Document at the re-anchor release." .
+    rdfs:comment "A file at a repo-relative path, through time. Its id IS the path, so a File node is an address, not a lifetime: content changes, deletions, and later unrelated files at the same path are all states of the address, recorded in history. IRI: git-lex/File/<path>. File-plane facts live here: prose links (wikilinks follow paths, by the path law) and free-form fm: frontmatter keys. Facts about the Thing a file expresses live on the Thing node instead (see fileId). Superseded git-lex:Document at the re-anchor release (Document retired with the train)." .
 
 git-lex:fileId a owl:ObjectProperty ;
     rdfs:label "fileId" ;
