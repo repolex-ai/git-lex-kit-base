@@ -267,7 +267,9 @@ async function loadRepoInfo() {
 }
 
 // Types that exist in the store but should NOT appear as Overview cards.
-// - lex-upper/Document is the generic untyped-document fallback
+// - lex-upper/Document is the generic untyped-document fallback; retired by
+//   the re-anchor but still present in not-yet-migrated stores — keep the
+//   filter until the whole fleet re-anchors, then remove
 // - RDF/OWL/SHACL meta types are infrastructure
 const HIDDEN_TYPE_PREFIXES = [
     'https://repolex.ai/ontology/lex-upper/',
@@ -289,6 +291,9 @@ const GL_NAME = GL_NS + 'name';
 const ONE_GRAPH     = 'https://repolex.ai/git-lex/LexHistoryGraph';
 const NOW_GRAPH     = 'https://repolex.ai/git-lex/NamedGraph/now';
 const COMMITS_GRAPH = 'https://repolex.ai/git-lex/NamedGraph/commits';
+
+// Re-anchored File subject base: FILE_BASE + uri-encoded repo-relative path.
+const FILE_BASE = 'https://repolex.ai/git-lex/File/';
 
 // Per-type label predicate. Returned in priority order — first one that has
 // values for the subject wins. Falls back to gl:name / fm:title, then
@@ -530,14 +535,23 @@ async function loadRecentCommits(limit = 30) {
         }
     `);
 
-    // Group touched docs by commit. Doc IRIs derive from repo paths
-    // (https://repolex.ai/<repo>/<path>), so the relative path is the IRI
-    // minus scheme+host+repo segment.
+    // Group touched docs by commit. Re-anchored stores use
+    // https://repolex.ai/git-lex/File/<uri-encoded repo-relative path>
+    // (path verbatim from repo root, extension kept). Pre-re-anchor stores
+    // used https://repolex.ai/<repo>/<path>; keep that derivation as the
+    // fallback until the whole fleet migrates.
     const byCommit = {};
     changes.forEach(row => {
         const c = row.c;
-        const segs = (row.doc || '').replace(/^https?:\/\/[^/]+\//, '').split('/');
-        const path = segs.slice(1).join('/') || segs.join('/');
+        const iri = row.doc || '';
+        let path;
+        if (iri.startsWith(FILE_BASE)) {
+            const raw = iri.slice(FILE_BASE.length);
+            try { path = decodeURIComponent(raw); } catch { path = raw; }
+        } else {
+            const segs = iri.replace(/^https?:\/\/[^/]+\//, '').split('/');
+            path = segs.slice(1).join('/') || segs.join('/');
+        }
         if (!byCommit[c]) byCommit[c] = [];
         if (!byCommit[c].includes(path)) byCommit[c].push(path);
     });
@@ -551,9 +565,8 @@ async function loadRecentCommits(limit = 30) {
             // Skip .lex internal noise so user-visible folders win when present.
             const folderCounts = {};
             paths.forEach(p => {
-                const top = p.split('/')[0] || p;
-                if (!top) return;
-                folderCounts[top] = (folderCounts[top] || 0) + 1;
+                if (!p.includes('/')) return; // root files have no folder
+                folderCounts[p.split('/')[0]] = (folderCounts[p.split('/')[0]] || 0) + 1;
             });
             // Prefer non-".lex" folders even if .lex has more files.
             const entries = Object.entries(folderCounts);
