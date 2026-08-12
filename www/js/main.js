@@ -249,12 +249,20 @@ async function loadRepoInfo() {
     `);
     if (commits[0]) info.commits = parseInt(commits[0].n) || 0;
 
-    // Count distinct documents: every extracted doc is a typed subject in
-    // the now view (fm:path is gone; file location is git2:path on
-    // IndexEntry in the filetree graph).
+    // Count distinct documents. A document is typed TWICE in the now view —
+    // once as its File and once as its kit Thing — so counting typed subjects
+    // counts most documents twice. On this repo that reported 198 documents
+    // against 146 markdown files actually tracked in git: a headline number
+    // that cannot be true. Fold each Thing onto its File first, the same
+    // collapse the graph view does, and the count becomes 126.
     const docs = await sparql(`
-        SELECT (COUNT(DISTINCT ?d) AS ?n) WHERE {
-            GRAPH <${NOW_GRAPH}> { ?d a ?type }
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+        SELECT (COUNT(DISTINCT ?doc) AS ?n) WHERE {
+            GRAPH <${NOW_GRAPH}> {
+                ?d a ?type .
+                OPTIONAL { ?d gl:fileId ?f }
+                BIND(COALESCE(?f, ?d) AS ?doc)
+            }
         }
     `);
     if (docs[0]) info.docs = parseInt(docs[0].n) || 0;
@@ -624,6 +632,11 @@ let graphState = {
     classes: [],        // [{ uri, name, color, enabled }]
     predicates: [],     // [{ uri, name, color }]
     selected: null,
+    // What the cursor is currently over. Distinct from `selected`: hovering
+    // costs the reader nothing and can be undone by moving the mouse, so it
+    // is where the graph should answer cheap questions ("what is this one?")
+    // without making anyone commit to a click first.
+    hovered: null,
     pan: { x: 0, y: 0 },
     zoom: 1,
     drag: null,
@@ -667,18 +680,24 @@ const GRAPH_HIDDEN_TYPES = [
     'https://repolex.ai/ontology/lex-o/',
 ];
 
+// Types every document gets regardless of what it means. A doc that also
+// carries a kit class should render as that class, never as one of these.
+// git-lex:File is the re-anchor's replacement for the retired
+// lex-upper:Document — same role, so it belongs on the same list. Leaving it
+// off is what made every collapsed document a coin flip between its real
+// class and a generic gray dot.
+const GENERIC_DOC_TYPES = [
+    'https://repolex.ai/ontology/lex-upper/',
+    'https://repolex.ai/ontology/git-lex/lex/',
+    'https://repolex.ai/ontology/git-lex/File',
+];
+
 // When a subject has multiple types, pick the most-specific one. Kit classes
-// win over the lex-upper:Document fallback.
+// win over the generic every-document fallbacks.
 function pickCanonicalType(types) {
     const visible = types.filter(t => !GRAPH_HIDDEN_TYPES.some(p => t.startsWith(p)));
     if (visible.length === 0) return null;
-    // Prefer kit-specific classes over generic Document fallbacks.
-    // lex-upper/Document and git-lex/lex/Document are both generic types
-    // that every file gets — always prefer the real kit class when present.
-    const specific = visible.find(t =>
-        !t.startsWith('https://repolex.ai/ontology/lex-upper/') &&
-        !t.startsWith('https://repolex.ai/ontology/git-lex/lex/')
-    );
+    const specific = visible.find(t => !GENERIC_DOC_TYPES.some(p => t.startsWith(p)));
     return specific || visible[0];
 }
 
@@ -691,10 +710,39 @@ async function loadGraph() {
     // connecting two docs — as {from, predicate, target, resolved}. `target`
     // is always a string and `resolved` a boolean; the JS branches on the
     // bool column, never on RDF term kinds.
-    const [nodeRows, edgeRows] = await Promise.all([
+    const [nodeRows, edgeRows, aliasRows] = await Promise.all([
         fetch(API + '/api/viz/nodes').then(r => r.json()).then(d => d.results || []).catch(() => []),
         fetch(API + '/api/viz/edges').then(r => r.json()).then(d => d.results || []).catch(() => []),
+        // A document has TWO subjects in the store: the File, which is where
+        // body links land, and the Thing, which is where the kit class lands.
+        // They are the same document. /api/viz/nodes returns both, and every
+        // edge is on the File plane — so without this join every kit-typed
+        // node (Note, Journal, Pursuit…) has degree zero BY CONSTRUCTION and
+        // renders as disconnected dust. Measured on a 114-commit soul repo:
+        // 198 nodes / 107 orphans before, 126 nodes / 35 orphans after, and
+        // the 35 that remain are honestly unlinked.
+        // gl:fileId is the join and it is complete (72/72 there). Read here
+        // rather than server-side so the fix works against binaries already
+        // in the wild; if a later api_viz_nodes collapses them itself, this
+        // map simply finds nothing to remap and the code is a no-op.
+        sparql(`
+            PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+            PREFIX fm: <https://repolex.ai/ontology/git-lex/fm/>
+            SELECT ?thing ?file ?title WHERE {
+                GRAPH <${NOW_GRAPH}> {
+                    ?thing gl:fileId ?file .
+                    OPTIONAL { ?file fm:title ?title }
+                }
+            }
+        `).catch(() => []),
     ]);
+
+    const fileOfThing = {};   // Thing IRI -> the File IRI edges actually use
+    const titleOfFile = {};   // File IRI -> frontmatter title, when authored
+    aliasRows.forEach(r => {
+        if (r.thing && r.file) fileOfThing[r.thing] = r.file;
+        if (r.file && r.title) titleOfFile[r.file] = r.title;
+    });
     const MD_LINKS_TO = 'https://repolex.ai/ontology/git-lex/md/linksTo';
     const edges = edgeRows.map(r => ({
         s: r.from,
@@ -705,11 +753,16 @@ async function loadGraph() {
     }));
 
     // Group raw rows by subject so we can pick a canonical type (a doc with
-    // several types produces one row per type).
+    // several types produces one row per type). Thing rows fold onto their
+    // File here, which is what makes the two halves one node. Labels are kept
+    // per type, not first-row-wins: the row that survives as canonical is the
+    // one whose label should show, and which row arrives first is arbitrary.
     const bySubject = {};
     nodeRows.forEach(r => {
-        if (!bySubject[r.id]) bySubject[r.id] = { id: r.id, types: [], title: r.label };
-        bySubject[r.id].types.push(r.type);
+        const id = fileOfThing[r.id] || r.id;
+        if (!bySubject[id]) bySubject[id] = { id, types: [], labels: {} };
+        bySubject[id].types.push(r.type);
+        bySubject[id].labels[r.type] = r.label;
     });
 
     // Resolve canonical type per subject; drop subjects with no visible type.
@@ -717,7 +770,11 @@ async function loadGraph() {
     for (const s of Object.values(bySubject)) {
         const type = pickCanonicalType(s.types);
         if (!type) continue;
-        canonical.push({ id: s.id, title: s.title, type });
+        // An authored frontmatter title beats any derived label — it is the
+        // name the author gave the document, and it is the difference between
+        // a graph of "2026-04-06-day-of-the-pod.md" and one of "Day of the Pod".
+        const title = titleOfFile[s.id] || s.labels[type] || shortName(s.id);
+        canonical.push({ id: s.id, title, type });
     }
 
     // Build class palette from canonical types observed in instances.
@@ -1123,7 +1180,13 @@ function drawGraph() {
     // Edge labels — predicate names at midpoint, rotated to follow the edge.
     // Only draw when zoomed in enough to read, and skip very short edges so
     // dense clusters don't drown in text.
-    if (graphState.zoom > 0.7) {
+    //
+    // And only when there is more than one predicate to tell apart. A soul
+    // repo is 130 out of 130 edges md:linksTo — writing "linksTo" 130 times
+    // distinguishes nothing, it just prints the same word across the picture.
+    // A label earns its ink by answering "which kind?", so when there is only
+    // one kind it has no question to answer.
+    if (graphState.zoom > 0.7 && graphState.predicates.length > 1) {
         // Constant on-screen size: 11px regardless of zoom. The canvas has
         // a `gctx.scale(zoom, zoom)` in effect, so we counter-divide.
         const labelPx = 11 / graphState.zoom;
@@ -1158,35 +1221,82 @@ function drawGraph() {
         });
     }
 
+    // Neighbours of the selection, resolved once. This used to be a full edge
+    // scan per node inside the draw loop — O(nodes × edges) every frame.
+    const neighborIds = new Set();
+    if (dimOthers) {
+        graphState.edges.forEach(e => {
+            if (e.source.id === selId) neighborIds.add(e.target.id);
+            if (e.target.id === selId) neighborIds.add(e.source.id);
+        });
+    }
+
     // Nodes
     visibleNodes.forEach(n => {
         const isSelected = selId === n.id;
-        const isNeighbor = dimOthers && !isSelected && graphState.edges.some(e =>
-            (e.source.id === selId && e.target.id === n.id) ||
-            (e.target.id === selId && e.source.id === n.id)
-        );
+        const isNeighbor = dimOthers && !isSelected && neighborIds.has(n.id);
         const isFocused = !dimOthers || isSelected || isNeighbor;
+        const isHovered = graphState.hovered === n.id;
         gctx.globalAlpha = isFocused ? 1 : 0.3;
         gctx.beginPath();
         gctx.arc(n.x, n.y, n.size, 0, Math.PI * 2);
         gctx.fillStyle = n.color;
         gctx.fill();
-        gctx.strokeStyle = isSelected ? '#000' : '#ffffff';
-        gctx.lineWidth = (isSelected ? 2.5 : 1.4) / graphState.zoom;
+        // Selection is a committed state and gets the heavy black ring.
+        // Hover is provisional, so it gets a lighter one — the difference in
+        // weight is the difference between "this is where you are" and "this
+        // is what you'd get".
+        gctx.strokeStyle = isSelected ? '#000' : (isHovered ? '#000' : '#ffffff');
+        gctx.lineWidth = (isSelected ? 2.5 : isHovered ? 1.8 : 1.4) / graphState.zoom;
         gctx.stroke();
     });
     gctx.globalAlpha = 1;
 
-    // Labels — only draw for moderately sized nodes & at zoom > 0.5
+    // Labels. Drawing one per node put ~80 overlapping strings in the middle
+    // of this repo's graph — the text stopped being readable AND stopped the
+    // shape underneath from being readable, so it cost twice what it paid.
+    // A map doesn't label every town at every zoom; it labels what you asked
+    // for and what's big, and it never lets two labels overlap. Same rules:
+    //   1. always label the selection and its neighbours — that's the answer
+    //      to a question the reader just asked, so it outranks everything
+    //   2. otherwise label in descending degree, so hubs win contested space
+    //   3. skip any label that would collide with one already placed
+    // Zooming in frees space and more names appear, which makes the zoom a
+    // way of reading rather than just a way of magnifying.
     if (graphState.zoom > 0.5) {
-        gctx.font = `${11 / graphState.zoom}px 'American Typewriter', Courier, monospace`;
-        gctx.fillStyle = '#222';
+        const labelPx = 11 / graphState.zoom;
+        gctx.font = `${labelPx}px 'American Typewriter', Courier, monospace`;
         gctx.textAlign = 'center';
         gctx.textBaseline = 'top';
-        visibleNodes.forEach(n => {
-            if (n.size < 6 && graphState.zoom < 1) return;
+
+        const ordered = visibleNodes.slice().sort((a, b) => b.degree - a.degree);
+        const placed = [];
+        const pad = 2 / graphState.zoom;
+
+        ordered.forEach(n => {
+            const isSelected = selId === n.id;
+            const isNeighbor = dimOthers && neighborIds.has(n.id);
+            const asked = isSelected || isNeighbor || n.id === graphState.hovered;
+            // When a selection is active the rest of the graph is context,
+            // not content — don't re-clutter it with names.
+            if (!asked && dimOthers) return;
+            if (!asked && n.degree === 0 && graphState.zoom < 1.4) return;
+
             const lbl = n.label.length > 22 ? n.label.substring(0, 20) + '…' : n.label;
-            gctx.fillText(lbl, n.x, n.y + n.size + 2);
+            const w = gctx.measureText(lbl).width;
+            const x = n.x - w / 2;
+            const y = n.y + n.size + 2;
+            const box = { x1: x - pad, y1: y - pad, x2: x + w + pad, y2: y + labelPx + pad };
+
+            if (!asked && placed.some(p =>
+                box.x1 < p.x2 && box.x2 > p.x1 && box.y1 < p.y2 && box.y2 > p.y1)) return;
+            placed.push(box);
+
+            // A label sits on top of edges, so give it a little air.
+            gctx.fillStyle = 'rgba(255,255,255,0.82)';
+            gctx.fillRect(box.x1, box.y1, box.x2 - box.x1, box.y2 - box.y1);
+            gctx.fillStyle = asked ? '#000' : '#222';
+            gctx.fillText(lbl, n.x, y);
         });
     }
 
@@ -1666,13 +1776,46 @@ function initGraphInput() {
         };
     });
 
-    canvas.addEventListener('mousemove', e => {
-        if (!graphState.drag) return;
+    // Shared hit test — the click, double-click and hover paths all ask the
+    // same question and were answering it three slightly different times.
+    function nodeAt(clientX, clientY) {
         const rect = canvas.getBoundingClientRect();
-        const dx = (e.clientX - rect.left) - graphState.drag.x;
-        const dy = (e.clientY - rect.top) - graphState.drag.y;
-        graphState.pan.x = graphState.drag.startPan.x + dx;
-        graphState.pan.y = graphState.drag.startPan.y + dy;
+        const wx = (clientX - rect.left - GW / 2 - graphState.pan.x) / graphState.zoom;
+        const wy = (clientY - rect.top - GH / 2 - graphState.pan.y) / graphState.zoom;
+        return graphState.nodes.find(n => {
+            const dx = n.x - wx, dy = n.y - wy;
+            return dx * dx + dy * dy < (n.size + 4) * (n.size + 4);
+        });
+    }
+
+    canvas.addEventListener('mousemove', e => {
+        if (graphState.drag) {
+            const rect = canvas.getBoundingClientRect();
+            const dx = (e.clientX - rect.left) - graphState.drag.x;
+            const dy = (e.clientY - rect.top) - graphState.drag.y;
+            graphState.pan.x = graphState.drag.startPan.x + dx;
+            graphState.pan.y = graphState.drag.startPan.y + dy;
+            drawGraph();
+            return;
+        }
+        // Hover. Nothing here used to answer the mouse at all — the graph sat
+        // inert until you committed to a click, which is what made it read as
+        // a diagram rather than something you could poke at. Redraw only when
+        // the answer actually changes, so this costs nothing while the cursor
+        // crosses empty space.
+        const hit = nodeAt(e.clientX, e.clientY);
+        const id = hit ? hit.id : null;
+        if (id !== graphState.hovered) {
+            graphState.hovered = id;
+            canvas.style.cursor = id ? 'pointer' : 'default';
+            drawGraph();
+        }
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        if (graphState.hovered === null) return;
+        graphState.hovered = null;
+        canvas.style.cursor = 'default';
         drawGraph();
     });
 
@@ -1681,14 +1824,7 @@ function initGraphInput() {
         const moved = Math.abs(e.clientX - (graphState.drag.x + canvas.getBoundingClientRect().left)) > 3;
         graphState.drag = null;
         if (moved) return;
-        // Click → hit test
-        const rect = canvas.getBoundingClientRect();
-        const wx = (e.clientX - rect.left - GW / 2 - graphState.pan.x) / graphState.zoom;
-        const wy = (e.clientY - rect.top - GH / 2 - graphState.pan.y) / graphState.zoom;
-        const hit = graphState.nodes.find(n => {
-            const dx = n.x - wx, dy = n.y - wy;
-            return dx * dx + dy * dy < (n.size + 4) * (n.size + 4);
-        });
+        const hit = nodeAt(e.clientX, e.clientY);
         if (hit) {
             graphState.selected = hit.id;
             showNodeDetail(hit);
@@ -1697,13 +1833,7 @@ function initGraphInput() {
     });
 
     canvas.addEventListener('dblclick', e => {
-        const rect = canvas.getBoundingClientRect();
-        const wx = (e.clientX - rect.left - GW / 2 - graphState.pan.x) / graphState.zoom;
-        const wy = (e.clientY - rect.top - GH / 2 - graphState.pan.y) / graphState.zoom;
-        const hit = graphState.nodes.find(n => {
-            const dx = n.x - wx, dy = n.y - wy;
-            return dx * dx + dy * dy < (n.size + 4) * (n.size + 4);
-        });
+        const hit = nodeAt(e.clientX, e.clientY);
         if (hit) openMarkdownViewer(hit);
     });
 
