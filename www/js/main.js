@@ -710,7 +710,7 @@ async function loadGraph() {
     // connecting two docs — as {from, predicate, target, resolved}. `target`
     // is always a string and `resolved` a boolean; the JS branches on the
     // bool column, never on RDF term kinds.
-    const [nodeRows, edgeRows, aliasRows] = await Promise.all([
+    const [nodeRows, edgeRows, aliasRows, unresolvedRows] = await Promise.all([
         fetch(API + '/api/viz/nodes').then(r => r.json()).then(d => d.results || []).catch(() => []),
         fetch(API + '/api/viz/edges').then(r => r.json()).then(d => d.results || []).catch(() => []),
         // A document has TWO subjects in the store: the File, which is where
@@ -735,6 +735,22 @@ async function loadGraph() {
                 }
             }
         `).catch(() => []),
+        // Links that point at nothing are NOT dropped — they are demoted to
+        // md:unresolvedLink as a literal on the source File. The edges route
+        // doesn't read that lane, which is why the dashed dead-end rendering
+        // below has never once fired: it was starving, not unnecessary.
+        //
+        // This is the honest half of the graph. A rename leaves every inbound
+        // link pointing at a path that no longer exists, and without this the
+        // only symptom is that the repo quietly has fewer edges than it did.
+        // Receipt: my own memory index carried a broken link for weeks; the
+        // graph knew, and had no way to say so.
+        sparql(`
+            PREFIX md: <https://repolex.ai/ontology/git-lex/md/>
+            SELECT ?s ?v WHERE {
+                GRAPH <${NOW_GRAPH}> { ?s md:unresolvedLink ?v }
+            }
+        `).catch(() => []),
     ]);
 
     const fileOfThing = {};   // Thing IRI -> the File IRI edges actually use
@@ -751,6 +767,16 @@ async function loadGraph() {
         p: r.predicate || MD_LINKS_TO,
         resolved: r.resolved === 'true' || r.resolved === true,
     }));
+
+    // The demoted links join the same edge list, flagged unresolved. From here
+    // they flow through machinery that already existed: they become dead-end
+    // stub nodes with dashed edges, so a link to something that isn't there
+    // stays VISIBLE instead of being a graph that is quietly two edges smaller.
+    const MD_UNRESOLVED = 'https://repolex.ai/ontology/git-lex/md/unresolvedLink';
+    unresolvedRows.forEach(r => {
+        if (!r.s || !r.v) return;
+        edges.push({ s: r.s, o: r.v, p: MD_UNRESOLVED, resolved: false });
+    });
 
     // Group raw rows by subject so we can pick a canonical type (a doc with
     // several types produces one row per type). Thing rows fold onto their
@@ -841,10 +867,13 @@ async function loadGraph() {
         return node;
     });
 
-    // Unresolved wikilink targets (resolved=false) become dead-end stub
-    // nodes with dashed edges — links to docs that don't exist yet stay
-    // VISIBLE instead of being silently dropped. Resolved targets missing
-    // from nodeById are cross-graph refs; those still drop.
+    // Unresolved link targets (resolved=false) become dead-end stub nodes
+    // with dashed edges — links to docs that aren't there stay VISIBLE
+    // instead of being silently dropped. Resolved targets missing from
+    // nodeById are cross-graph refs; those still drop.
+    // (Wikilinks are retired; these now arrive from md:unresolvedLink, which
+    // is where a link goes when its path stops resolving — after a rename,
+    // most often. The label is the path as the author actually wrote it.)
     const STUB_CLASS = {
         uri: 'about:unresolved-link', name: '(unresolved link)',
         color: '#555', enabled: true, count: 0,
@@ -861,9 +890,14 @@ async function loadGraph() {
         graphState.nodes.push(nodeById[e.o]);
     });
 
-    // Build predicate palette from the edges we'll actually keep.
+    // Build predicate palette from the edges we'll actually keep. Unresolved
+    // edges are deliberately excluded: "unresolved" is a STATE a link is in,
+    // not a kind of link, and it already reads as one from the dashes and the
+    // stub. Letting it into the palette would also silently count as a second
+    // predicate and switch every "linksTo" label back on.
     const predicateMap = {};
     edges.forEach(e => {
+        if (!e.resolved) return;
         if (!nodeById[e.s] || !nodeById[e.o]) return;
         if (!predicateMap[e.p]) {
             predicateMap[e.p] = {
@@ -880,13 +914,15 @@ async function loadGraph() {
         .map(e => {
             nodeById[e.s].degree++;
             nodeById[e.o].degree++;
+            // Unresolved edges are not in the palette by design, so there is
+            // no entry to read — fall back rather than assume one is there.
             const pred = predicateMap[e.p];
             return {
                 source: nodeById[e.s],
                 target: nodeById[e.o],
                 predicate: e.p,
-                predicateName: pred.name,
-                color: e.resolved ? pred.color : STUB_CLASS.color,
+                predicateName: pred ? pred.name : shortName(e.p),
+                color: pred && e.resolved ? pred.color : STUB_CLASS.color,
                 dashed: !e.resolved,
             };
         });
