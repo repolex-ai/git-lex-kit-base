@@ -28,7 +28,34 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.9.2" .
+    owl:versionInfo "0.10" .
+
+# v0.10 (2026-08-21, Rob-ruled): THE RANGE BECOMES THE RULE, and Thing's
+#   definition is corrected to match what it always meant.
+#   (1) git-lex:relatedToId gains `rdfs:range git-lex:Thing`. W4R3Z built the
+#   reader first and deployed it fleet-wide (git-lex 65286a9) BEFORE this line
+#   shipped — deliberately, because the reverse order would have minted
+#   `git-lex/Thing/<garbage>` IRIs everywhere. This ttl edit arms the feature
+#   per repo as kit-updates land. Under a declared Thing range the
+#   angle-bracket form is the ONLY accepted value and everything else rejects
+#   at save, blocking, with the fix named per value. That is option (B) from
+#   the bare-value path-lane report (subtexture 2026_08_18), shipped as a
+#   per-property declaration rather than a hardcoded rule — so the mechanism
+#   generalises to any reference property that declares a range.
+#   Fleet exposure at ship time, measured by W4R3Z: ONE bare value (M3RC's
+#   Soul/Journal/day-16.md); selkie's 7 specimens self-cleared before this.
+#   (2) git-lex:Thing's comment no longer says "every foldered class is a
+#   Thing." That was true of the corpus and was never the definition — see the
+#   block above the class. Foldered was a proxy for "has its own identity,"
+#   and two pressures broke the tie the same week: Rob's ravel ruling (a
+#   graph-only class needs the five properties) and the range entailment in (1)
+#   (pointing at a derived entity makes it a Thing whether we declare it or
+#   not). A proposed git-lex:DerivedThing was refused: authored-vs-derived is
+#   already recoverable, and a second class splits the query surface Rob asked
+#   to unify.
+#   NOT in this cut: ravel:Turn subclassing Thing (spaceGOAT lands it in
+#   ravel.ttl), and copia:Moment / copia:Judgment (Rob's, queued for the pan
+#   sitting). The definition is what needed to be right first.
 
 # v0.8 (2026-08-02, Rob-ruled): File plane lands (inert until the re-anchor
 #   release) — git-lex:File class + derived git-lex:fileId; Document marked
@@ -142,9 +169,50 @@ git-lex:fileId a owl:ObjectProperty ;
 # properties would have manufactured that false accusation across every kit at
 # once.
 
+# WHAT MAKES A THING A THING — corrected 2026-08-21, because the first
+# definition over-fit the corpus it was written against.
+#
+# v0.9's comment said "every foldered class in every kit is a Thing." That was
+# TRUE and it was never the DEFINITION. At the time, every entity class in all
+# four kits happened to be an authored one, so "foldered" and "has its own
+# identity" picked out the same set, and the proxy got written down as the rule.
+# A coincidence of the corpus, promoted to law by nobody noticing it was one.
+#
+# Two independent pressures broke the tie in the same week, which is the usual
+# sign the proxy was the problem:
+#
+#   1. Rob, ruling on ravel (2026-08-20): "we should have these in ravel also,
+#      we will need them. Every kind of thing we define will need an id, cue
+#      will be helpful for remembering, relatedToId is essential. I don't want
+#      to make the same mistake we made with Pool." ravel:Turn is GRAPH-ONLY —
+#      nobody authors one — and it plainly needs the universal properties.
+#
+#   2. `git-lex:relatedToId` gaining `rdfs:range git-lex:Thing` (below). In
+#      RDFS a range is an ENTAILMENT: `?x relatedToId ?y` entails `?y a
+#      git-lex:Thing`, whether or not any ttl says so. So the moment anything
+#      points at a derived entity, that entity IS a Thing in the data. Refusing
+#      to declare it would not prevent the fact — it would only mean the
+#      ontology declines to state what its own data already asserts, which is
+#      the one failure this seat exists to prevent.
+#
+# So: a Thing is an entity with its OWN IDENTITY, independent of any file.
+# Authored or derived is a fact about how it got here, not about what it is —
+# and it is already recoverable (does a document declare it?), so it earns no
+# separate class. A `git-lex:DerivedThing` was proposed and refused on exactly
+# that ground: it would split the query surface Rob asked us to unify, to
+# record something nobody has to be told.
+#
+# Consequence for the id property below: its "AUTHORED" framing still holds for
+# every class a human writes, and derived Things simply never author one —
+# their IRI is minted by their producer and IS their identity. No contradiction,
+# and no second property.
+#
+# NOT settled here: copia:Moment and copia:Judgment are graph-only entity
+# classes that do not yet subclass Thing. The reasoning above applies to them
+# and the change is Rob's, queued for the pan sitting — not stamped in passing.
 git-lex:Thing a owl:Class ;
     rdfs:label "Thing" ;
-    rdfs:comment "An ontology-defined entity a document expresses, as opposed to the file expressing it. Counterpart to git-lex:File: a File is an address (its id is a path, and dies on rename), a Thing is a lifetime (its id is authored, and survives moves). Every foldered class in every kit is a Thing. The universal authored properties — id, title, abstract, cue, relatedToId — have this as their domain." .
+    rdfs:comment "An entity with its own identity and lifetime, as opposed to the file that carries it. Counterpart to git-lex:File: a File is an ADDRESS (its id is a path, and dies on rename), a Thing is a LIFETIME (its id is its own, and survives moves). Authored document classes and derived graph-only classes are both Things. The universal properties — id, title, abstract, cue, relatedToId — have this as their domain." .
 
 git-lex:id a owl:ObjectProperty ;
     rdfs:label "id" ;
@@ -203,10 +271,29 @@ git-lex:cue a owl:DatatypeProperty ;
     rdfs:domain git-lex:Thing ;
     rdfs:range xsd:string .
 
+# THE RANGE IS THE RULE (Rob-ruled 2026-08-20; git-lex 65286a9 by W4R3Z).
+# `rdfs:range git-lex:Thing` is not decoration — it is the declared switch that
+# turns on the angle-bracket lane. Under it, `<namespace/Class/identifier>` is
+# the ONLY accepted form, and every other shape REJECTS at save with the fix
+# spelled out: bare paths, real repo-relative file paths, bare names, absolute
+# IRIs in brackets, and URLs (forbidden by the same ruling).
+#
+# This is the fix for the silent wrong-join that ran for months: an unbracketed
+# value resolved through the file-path lane, got the writing repo's own
+# namespace welded on, and landed on an address nothing described — no error,
+# no warning, 104 dead links in one repo before anyone measured. It is now a
+# per-property declaration rather than a hardcoded rule, so any reference
+# property can opt in by declaring a range.
+#
+# The range also does ontological work, and that half is not optional. In RDFS
+# a range is an ENTAILMENT, not a filter: `?x relatedToId ?y` now entails
+# `?y a git-lex:Thing`. So every class anyone may point at must BE a declared
+# Thing — see the Thing comment above for why that reaches derived classes too.
 git-lex:relatedToId a owl:ObjectProperty ;
     rdfs:label "relatedToId" ;
     rdfs:comment "Another Thing this one relates to, any class in any kit, written <namespace/Class/identifier>. Multi-valued — one YAML list item per target; do not repeat the key." ;
-    rdfs:domain git-lex:Thing .
+    rdfs:domain git-lex:Thing ;
+    rdfs:range git-lex:Thing .
 
 git-lex:Thing rdfs:subClassOf
     [ a owl:Restriction ; owl:onProperty git-lex:id       ; owl:maxCardinality 1 ] ,
