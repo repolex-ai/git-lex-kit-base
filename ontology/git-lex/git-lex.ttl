@@ -28,7 +28,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.10.1" .
+    owl:versionInfo "0.10.2" .
 
 # v0.10 (2026-08-21, Rob-ruled): THE RANGE BECOMES THE RULE, and Thing's
 #   definition is corrected to match what it always meant.
@@ -302,9 +302,23 @@ git-lex:cue a owl:DatatypeProperty ;
 # relatedToPursuitId case, answered eleven days before it was asked. This author
 # did not re-read it, went looking for precedent in copia instead, found the
 # bare-id pattern on lookMomentId, and shipped the wrong lane until Rob said
-# otherwise. The vocabulary knew. Read the changelog before hunting the corpus —
-# a kit's own history is a primary source and the corpus is only evidence of
-# what people did.
+# otherwise. The vocabulary knew.
+#
+# THE RULE THAT FALLS OUT OF IT (W4R3Z's formulation, 2026-08-22, correcting a
+# looser one this author shipped hours earlier and which is why this paragraph
+# was rewritten):
+#
+#   MATCH THE INSTRUMENT TO THE QUESTION. The corpus answers WHAT EXISTS — it
+#   is the only honest source for blast radius, which is why every measured-zero
+#   gate in these kits lives there. The crate and the TTL answer WHAT THE RULE
+#   IS. Using the corpus for THAT question is the failure mode: reading what
+#   authors managed to do as if it were what the contract says.
+#
+# Same instrument, different question, and only one of them is valid per
+# question. The earlier phrasing here — "the corpus is only evidence of what
+# people did" — demoted the corpus generally and was wrong: a corpus grep is
+# exactly right for "how many documents break if I change this," and wrong only
+# for "what is the value form." Blast radius: corpus. Contract: declaration.
 #
 # A RANGE IS A VALUE-FORM CONTRACT, and there are exactly two:
 #
