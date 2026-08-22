@@ -28,7 +28,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.10" .
+    owl:versionInfo "0.10.1" .
 
 # v0.10 (2026-08-21, Rob-ruled): THE RANGE BECOMES THE RULE, and Thing's
 #   definition is corrected to match what it always meant.
@@ -289,6 +289,55 @@ git-lex:cue a owl:DatatypeProperty ;
 # a range is an ENTAILMENT, not a filter: `?x relatedToId ?y` now entails
 # `?y a git-lex:Thing`. So every class anyone may point at must BE a declared
 # Thing — see the Thing comment above for why that reaches derived classes too.
+#
+# ---------------------------------------------------------------------------
+# THE OTHER HALF, which the block above omitted and which cost a day to
+# rediscover (added 2026-08-22). Documenting `range git-lex:Thing` without
+# documenting what a CONCRETE range means left the more dangerous case unwritten.
+#
+# First, an admission that belongs next to the rule and not in a commit message:
+# the VALUE-FORM half was already written here, in the v0.9 changelog above, on
+# 2026-08-11 — "VALUES ARE FULLY QUALIFIED ... always relatedToId, or a typed
+# relatedToJournalId where the class must be forced." That is precisely the
+# relatedToPursuitId case, answered eleven days before it was asked. This author
+# did not re-read it, went looking for precedent in copia instead, found the
+# bare-id pattern on lookMomentId, and shipped the wrong lane until Rob said
+# otherwise. The vocabulary knew. Read the changelog before hunting the corpus —
+# a kit's own history is a primary source and the corpus is only evidence of
+# what people did.
+#
+# A RANGE IS A VALUE-FORM CONTRACT, and there are exactly two:
+#
+#   rdfs:range git-lex:Thing   → the ADDRESS lane. Value is `<ns/Class/id>`.
+#                                Everything else rejects, blocking, fix named.
+#   rdfs:range <concrete class> → the BARE-ID lane (Law 6). Value is the
+#                                target's own id, no brackets; the IRI is
+#                                derived as <range class>/<value>.
+#
+# Lane selection is EXACT EQUALITY on the declared range IRI — no subclass walk
+# (verified in the crate by W4R3Z 2026-08-22: the machine never reads property
+# NAMES, only declarations; the "*ToId" convention is for humans). Consequences
+# an ontology author must hold:
+#
+#   1. Declaring ANY concrete class range is declaring a bare-id contract —
+#      including a class that IS a Thing subclass. `soul:Pursuit` does not
+#      inherit Thing's lane.
+#   2. A bracketed value under a concrete range does NOT error. It is
+#      percent-encoded into the identifier and glued under the range class:
+#      `<soul/Pursuit/x>` emits as `.../Pursuit/%3Csoul/Pursuit/x%3E`. Silent,
+#      and the same mangling shape as the 2026-08-18 path-lane bug seen from
+#      the other side. Measured, not theorised — it is why
+#      soul:relatedToPursuitId ships at range git-lex:Thing rather than the
+#      more precise soul:Pursuit.
+#   3. So a TYPED edge (bracketed AND class-checked) is not yet expressible.
+#      It needs two builds that do not exist: subclass-aware lane selection
+#      (range ⊑ Thing → address lane) and a target-class check (the address's
+#      Class segment must match the range class or a subclass). Until both
+#      land, choose the lane you want and accept the other half's looseness.
+#   4. ORDERING LAW, twice-earned: the reader ships before the declaration.
+#      Narrowing a Thing range to a concrete class before the subclass walk
+#      exists silently converts every correct value into a mangled one.
+# ---------------------------------------------------------------------------
 git-lex:relatedToId a owl:ObjectProperty ;
     rdfs:label "relatedToId" ;
     rdfs:comment "Another Thing this one relates to, any class in any kit, written <namespace/Class/identifier>. Multi-valued — one YAML list item per target; do not repeat the key." ;
