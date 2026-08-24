@@ -28,7 +28,24 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.10.2" .
+    owl:versionInfo "0.10.3" .
+
+# v0.10.3 (2026-08-24, Rob-ruled): CLASS-LEVEL ANNOTATIONS GET A DECLARED HOME.
+#   (1) + git-lex:authoringGuidance — per-class guidance on what belongs in a
+#   document's body. Rob's framing: `create` describes every metadata field and
+#   says nothing about the body, so the body's entire specification has been one
+#   placeholder string for every class in every kit. Delivered two ways —
+#   `git lex create` shows it, and it lands in the class's __<Class>.md template
+#   for agents that write files without calling create. It does NOT land in the
+#   document. Never enforced, by standing rule: no gate, no warning, absent from
+#   verify. A guideline that can fail something has stopped being memory support.
+#   (2) git-lex:foldered DECLARED — it has been in use on every foldered class in
+#   every kit since the beginning and appeared in this file only inside comments.
+#   The readers match the literal IRI so nothing misbehaved, but to a reasoner,
+#   an exporter, or a kit author reading this file it was an undefined predicate
+#   applied to a class. Behaviour unchanged; the term now exists.
+#   Both are owl:AnnotationProperty because their subject is a class — see the
+#   section header for why a DatatypeProperty would be the wrong shape.
 
 # v0.10 (2026-08-21, Rob-ruled): THE RANGE BECOMES THE RULE, and Thing's
 #   definition is corrected to match what it always meant.
@@ -362,6 +379,31 @@ git-lex:Thing rdfs:subClassOf
     [ a owl:Restriction ; owl:onProperty git-lex:id       ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:title    ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:abstract ; owl:maxCardinality 1 ] .
+
+# =============================================================================
+# CLASS-LEVEL ANNOTATIONS — what a kit says ABOUT its own classes
+# =============================================================================
+# These annotate an owl:Class. They are read by git-lex's tooling — folder
+# scaffolding, `create`, template generation — and never appear in a document's
+# frontmatter. Nothing here describes an instance.
+#
+# Declared owl:AnnotationProperty deliberately. The subject is a class, which is
+# a T-box entity; a DatatypeProperty applied to a class would additionally
+# assert that the class is an individual (OWL punning), which is not what any of
+# these mean.
+# =============================================================================
+
+git-lex:foldered a owl:AnnotationProperty ;
+    rdfs:label "foldered" ;
+    rdfs:domain owl:Class ;
+    rdfs:range xsd:boolean ;
+    rdfs:comment "True when init should scaffold a folder for this class and its documents are authored as files. A class without it is graph-only — real in the ontology, but with no folder and nothing to create." .
+
+git-lex:authoringGuidance a owl:AnnotationProperty ;
+    rdfs:label "authoringGuidance" ;
+    rdfs:domain owl:Class ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Guidance for whoever writes a document of this class — what belongs in the body. Delivered by `git lex create` and written into the class's __<Class>.md template; it does not land in the document itself. NEVER enforced: gates no save, raises no warning, absent from verify." .
 
 git-lex:NamedGraph a owl:Class ;
     rdfs:subClassOf sd:NamedGraph ;
