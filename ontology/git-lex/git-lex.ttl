@@ -28,7 +28,44 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.10.3" .
+    owl:versionInfo "0.11.0" .
+
+# v0.11 (2026-08-24, Rob-ruled): THREE MORE UNIVERSAL PROPERTIES, and the
+#   abstract/description split is a TRUST distinction, not a length one.
+#   (1) + git-lex:description — CURATED. Short, deliberate, and software may
+#   read it, so the value matters. Exact use varies by class. Rob's finding:
+#   this was never a per-class need. copia had already grown SEVEN of them —
+#   beingDescription, itemDescription, lookDescription, motionDescription,
+#   outfitDescription, placeDescription, setDescription — plus a bare
+#   shortDescription. Seven names for one idea inside ONE kit, so "find
+#   everything whose description mentions X" needed a seven-way UNION. Same
+#   damage as soul:title vs copia:title, concentrated. Declared once here; the
+#   copia seven collapse into it on a later migration (Rob's call, not stamped
+#   in passing).
+#   NAMED description, NOT shortDescription: "short" is a constraint, not an
+#   identity — if length is enforced it belongs in the shape as a maxLength.
+#   copia carried both spellings, which is how one idea became eight names.
+#   (2) git-lex:abstract's comment REWRITTEN, unchanged in shape. It is the
+#   GENERATED counterpart: what an agent made of the document, overwritable by
+#   automation, not to be depended on. That is the whole reason to keep both —
+#   abstract is where automation may write without contaminating a field
+#   software reads. Stated in both comments, because otherwise authors fill
+#   whichever they meet first and the trust level means nothing.
+#   (3) + git-lex:dateCreated, + git-lex:dateUpdated. This REVERSES the v0.9
+#   refusal of `date`, and the reason is worth keeping. That refusal said "git
+#   holds both precisely." True of modification, FALSE of creation: git records
+#   when a file entered THIS repo's history, so every migration silently resets
+#   it. Measured on the guardian's own repo — a batch of Memory documents all
+#   report the day they were migrated in from the harness auto-memory directory,
+#   not the day they were written. So dateCreated records a fact that is
+#   otherwise UNRECOVERABLE after a move, and dateUpdated is machine-maintained
+#   on save (Rob-ruled) rather than hand-kept — which is what defuses the
+#   two-sources-of-truth objection that grounded the original refusal.
+#   BOTH xsd:date, matching the house convention (soul:earthDate,
+#   copia:lastVisited). Day granularity is deliberate: precise ordering is git's
+#   job, and duplicating a timestamp git already holds exactly is the thing v0.9
+#   was right about.
+#   All three carry owl:maxCardinality 1 on Thing.
 
 # v0.10.3 (2026-08-24, Rob-ruled): CLASS-LEVEL ANNOTATIONS GET A DECLARED HOME.
 #   (1) + git-lex:authoringGuidance — per-class guidance on what belongs in a
@@ -229,7 +266,7 @@ git-lex:fileId a owl:ObjectProperty ;
 # and the change is Rob's, queued for the pan sitting — not stamped in passing.
 git-lex:Thing a owl:Class ;
     rdfs:label "Thing" ;
-    rdfs:comment "An entity with its own identity and lifetime, as opposed to the file that carries it. Counterpart to git-lex:File: a File is an ADDRESS (its id is a path, and dies on rename), a Thing is a LIFETIME (its id is its own, and survives moves). Authored document classes and derived graph-only classes are both Things. The universal properties — id, title, abstract, cue, relatedToId — have this as their domain." .
+    rdfs:comment "An entity with its own identity and lifetime, as opposed to the file that carries it. Counterpart to git-lex:File: a File is an ADDRESS (its id is a path, and dies on rename), a Thing is a LIFETIME (its id is its own, and survives moves). Authored document classes and derived graph-only classes are both Things. The universal properties — id, title, description, abstract, cue, relatedToId, dateCreated, dateUpdated — have this as their domain." .
 
 git-lex:id a owl:ObjectProperty ;
     rdfs:label "id" ;
@@ -244,9 +281,27 @@ git-lex:title a owl:DatatypeProperty ;
 
 git-lex:abstract a owl:DatatypeProperty ;
     rdfs:label "abstract" ;
-    rdfs:comment "A short summary of this Thing, for readers and listings. Single-valued." ;
+    rdfs:comment "GENERATED — what an agent made of this document. Automation may overwrite it; do not depend on it being current. For a value software reads, use description." ;
     rdfs:domain git-lex:Thing ;
     rdfs:range xsd:string .
+
+git-lex:description a owl:DatatypeProperty ;
+    rdfs:label "description" ;
+    rdfs:comment "CURATED — a short deliberate summary software may read, so what you write here matters. Exact use varies by class. Single-valued." ;
+    rdfs:domain git-lex:Thing ;
+    rdfs:range xsd:string .
+
+git-lex:dateCreated a owl:DatatypeProperty ;
+    rdfs:label "dateCreated" ;
+    rdfs:comment "The date this document was first written, YYYY-MM-DD. Set once at birth; never update it — dateUpdated carries the changes." ;
+    rdfs:domain git-lex:Thing ;
+    rdfs:range xsd:date .
+
+git-lex:dateUpdated a owl:DatatypeProperty ;
+    rdfs:label "dateUpdated" ;
+    rdfs:comment "The date this document last changed, YYYY-MM-DD. Maintained by git-lex on save — do not hand-edit." ;
+    rdfs:domain git-lex:Thing ;
+    rdfs:range xsd:date .
 
 # HOW TO WRITE A GOOD CUE — from the two seats that wrote the first twenty, both
 # arriving at the same test independently, three days after the field shipped.
@@ -376,9 +431,12 @@ git-lex:relatedToId a owl:ObjectProperty ;
     rdfs:range git-lex:Thing .
 
 git-lex:Thing rdfs:subClassOf
-    [ a owl:Restriction ; owl:onProperty git-lex:id       ; owl:maxCardinality 1 ] ,
-    [ a owl:Restriction ; owl:onProperty git-lex:title    ; owl:maxCardinality 1 ] ,
-    [ a owl:Restriction ; owl:onProperty git-lex:abstract ; owl:maxCardinality 1 ] .
+    [ a owl:Restriction ; owl:onProperty git-lex:id          ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:title       ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:abstract    ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:description ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:dateCreated ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:dateUpdated ; owl:maxCardinality 1 ] .
 
 # =============================================================================
 # CLASS-LEVEL ANNOTATIONS — what a kit says ABOUT its own classes
