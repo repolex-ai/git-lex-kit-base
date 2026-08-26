@@ -2,7 +2,7 @@
 # THE REFERENCE KIT ONTOLOGY  —  copy this file, rename it, fill it in.
 # =============================================================================
 #
-#   TEMPLATE VERSION: 1.0.0        (see "TEMPLATE CHANGELOG" at the bottom)
+#   TEMPLATE VERSION: 1.1.0        (see "TEMPLATE CHANGELOG" at the bottom)
 #   CURRENT FOR:      kit-base 0.11.0
 #   MAINTAINED BY:    the guardian seat (tr1p-l3x). Changes here are ontology
 #                     direction and route through Rob like any other.
@@ -88,8 +88,35 @@
 # git-lex:authoringGuidance says what belongs in the BODY. It is delivered by
 # `create` and written into the __Plant.md template; it does NOT land in the
 # document, and it is NEVER enforced — no gate, no warning, nothing in verify.
-# Headings with one line each. If you are writing paragraphs you are writing a
-# manual, and a manual belongs somewhere this can point at.
+#
+# THE REGISTER TEST (th34's formulation, 2026-08-26, and it is better than the
+# one it replaces). The old rule was a cost argument: keep it short because it
+# lands in every template forever. True, but it does not tell you what to cut.
+# This does:
+#
+#   WRITE WHAT BELONGS IN EACH SECTION. DO NOT TEACH HOW TO DO THE SECTION WELL.
+#
+# Those produce different text, and the second is a manual wearing guidance's
+# clothes. Earned on copia:Scenario — a class whose entire point is its body
+# prose, the case most likely to break the cap. It came in at three sections and
+# 507 characters, and the author's report was that the constraint made the
+# guidance BETTER: the theory he wanted room for was teaching, not specifying.
+#
+# Section count follows from the content, not from a number. Five is defensible
+# when five things are genuinely distinct (copia:ScenarioTake: Intent and
+# Prediction are falsifiable-before-firing, Changed is the experiment's only
+# variable — collapsing them would hide that). Paragraphs are the smell, not
+# sections.
+#
+# FORMAT IS IN REGISTER WHEN THE FORMAT CARRIES MEANING THAT IS OTHERWISE LOST.
+# "Use sentence case," "keep paragraphs short," "write in past tense" are style,
+# and they belong in a Skill. But copia:Shotlist asks for a NUMBERED markdown
+# list, and that is content: the list number IS the shot number, the handle that
+# traces a bad frame back to the line that made it. The evidence is 588 existing
+# shot lists holding 17,329 bare unnumbered lines — which markdown renders as a
+# single joined paragraph, destroying the line boundaries that were the meaning.
+# Test to apply: WOULD OMITTING THE FORMAT LOSE INFORMATION? Yes → say it. No →
+# it is taste, leave it out.
 # -----------------------------------------------------------------------------
 
 garden:Plant a owl:Class ;
@@ -331,6 +358,18 @@ garden:Plant rdfs:subClassOf
 # =============================================================================
 # TEMPLATE CHANGELOG  —  this file's own history, newest first
 # =============================================================================
+# 1.1.0 (2026-08-26, tr1p-l3x): THE REGISTER TEST REPLACED, from field use.
+#   §3's rule was a cost argument — keep it short, it lands everywhere forever.
+#   True and useless: it does not tell an author what to CUT. th34 wrote all four
+#   copia guidance blocks against 1.0.0 and came back with the better rule: write
+#   what belongs in each section, do not teach how to do the section well. Earned
+#   on Scenario, the case most likely to break the cap (its whole point is body
+#   prose) — three sections, 507 chars, and the constraint improved the result.
+#   Also: section COUNT follows content, not a number (ScenarioTake defends five);
+#   and FORMAT is in register when the format carries meaning otherwise lost —
+#   Shotlist's numbered list, where the number IS the shot number, against 17,329
+#   existing bare lines that markdown renders as one joined paragraph.
+#
 # 1.0.0 (2026-08-25, tr1p-l3x, Rob-requested): First cut. Written because th34
 #   and Rob needed something to point at while authoring new classes, and
 #   because "the proper way to write one" existed only across four docs, several
