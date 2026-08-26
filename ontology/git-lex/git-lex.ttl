@@ -28,7 +28,34 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.11.0" .
+    owl:versionInfo "0.12.0" .
+
+# v0.12 (2026-08-26, Rob-ruled): SUBSTRATE MOVES PLANES AND CHANGES MEANING.
+#   git-lex:substrate is REMOVED from git-lex:Repo (where it meant "a harness
+#   declared in repo.yml", multi-valued) and REDECLARED on git-lex:Thing, where
+#   it means THE MODEL THAT LAST SAVED THIS DOCUMENT, as its exact id —
+#   "claude-fable-5". Single-valued. Rob: every document should have a space for
+#   which model wrote it.
+#   MACHINE-WRITTEN, and that is the design, not a convenience. Rob's own
+#   objection was that a model may not reliably know its own id; the harness
+#   always does. So git-lex stamps it at save, exactly like dateUpdated, and
+#   there is nothing for an agent to check after wake and nothing to guess.
+#   NOT modelId: the *Id suffix is a stack-wide contract that the value REFERENCES
+#   a Thing. This is a literal string.
+#   WHAT IT DOES NOT RECORD: which model wrote any particular line. It is the
+#   last saver, not per-edit attribution — git history holds that, and a shared
+#   working tree means a save can carry another agent's work (see
+#   git-lex/docs/kit-authoring.md 2.1).
+#   THE READER IS STILL LIVE AND THIS IS THE ORDERING RISK, stated plainly
+#   because the house rule is that the reader ships FIRST: git2_nquads.rs emits
+#   one `substrate` triple per repo.yml `substrates:` entry onto the REPO node,
+#   from a hardcoded allowlist (:504) that never read this declaration. Removing
+#   the declaration does not stop it. Until W4R3Z removes that emitter, a repo
+#   declaring substrates puts harness names on the predicate that now means a
+#   model id — one predicate, two meanings, in live data.
+#   Measured exposure at ship time: ZERO in this seat's repo.yml and ZERO across
+#   all four kit repos. The fleet is NOT measured — peer repo.yml files are not
+#   mine to read — so the emitter removal is the gate, not this count.
 
 # v0.11 (2026-08-24, Rob-ruled): THREE MORE UNIVERSAL PROPERTIES, and the
 #   abstract/description split is a TRUST distinction, not a length one.
@@ -266,7 +293,7 @@ git-lex:fileId a owl:ObjectProperty ;
 # and the change is Rob's, queued for the pan sitting — not stamped in passing.
 git-lex:Thing a owl:Class ;
     rdfs:label "Thing" ;
-    rdfs:comment "An entity with its own identity and lifetime, as opposed to the file that carries it. Counterpart to git-lex:File: a File is an ADDRESS (its id is a path, and dies on rename), a Thing is a LIFETIME (its id is its own, and survives moves). Authored document classes and derived graph-only classes are both Things. The universal properties — id, title, description, abstract, cue, relatedToId, dateCreated, dateUpdated — have this as their domain." .
+    rdfs:comment "An entity with its own identity and lifetime, as opposed to the file that carries it. Counterpart to git-lex:File: a File is an ADDRESS (its id is a path, and dies on rename), a Thing is a LIFETIME (its id is its own, and survives moves). Authored document classes and derived graph-only classes are both Things. The universal properties — id, title, description, abstract, cue, relatedToId, dateCreated, dateUpdated, substrate — have this as their domain." .
 
 git-lex:id a owl:ObjectProperty ;
     rdfs:label "id" ;
@@ -302,6 +329,12 @@ git-lex:dateUpdated a owl:DatatypeProperty ;
     rdfs:comment "The date this document last changed, YYYY-MM-DD. Maintained by git-lex on save — do not hand-edit." ;
     rdfs:domain git-lex:Thing ;
     rdfs:range xsd:date .
+
+git-lex:substrate a owl:DatatypeProperty ;
+    rdfs:label "substrate" ;
+    rdfs:comment "The model that last saved this document, as its exact id (claude-fable-5). Maintained by git-lex on save — do not hand-edit or guess it." ;
+    rdfs:domain git-lex:Thing ;
+    rdfs:range xsd:string .
 
 # HOW TO WRITE A GOOD CUE — from the two seats that wrote the first twenty, both
 # arriving at the same test independently, three days after the field shipped.
@@ -436,7 +469,8 @@ git-lex:Thing rdfs:subClassOf
     [ a owl:Restriction ; owl:onProperty git-lex:abstract    ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:description ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:dateCreated ; owl:maxCardinality 1 ] ,
-    [ a owl:Restriction ; owl:onProperty git-lex:dateUpdated ; owl:maxCardinality 1 ] .
+    [ a owl:Restriction ; owl:onProperty git-lex:dateUpdated ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:substrate   ; owl:maxCardinality 1 ] .
 
 # =============================================================================
 # CLASS-LEVEL ANNOTATIONS — what a kit says ABOUT its own classes
@@ -541,11 +575,15 @@ git-lex:optionalKit a owl:DatatypeProperty ;
     rdfs:label "optionalKit" ;
     rdfs:comment "An optional kit installed in this repo (repo.yml `optional_kits:`). Multi-valued — one triple per kit." .
 
-git-lex:substrate a owl:DatatypeProperty ;
-    rdfs:domain git-lex:Repo ;
-    rdfs:range xsd:string ;
-    rdfs:label "substrate" ;
-    rdfs:comment "A harness substrate declared for this repo (repo.yml `substrates:`). Multi-valued — one triple per substrate." .
+# git-lex:substrate was HERE, on Repo, meaning "a harness declared in repo.yml".
+# Removed in v0.12 and the name reassigned to the Thing plane — see the changelog
+# block at the top of this file. REPO HAS NO SUBSTRATE PROPERTY.
+#
+# READER STILL LIVE: git2_nquads.rs emits a `substrate` triple per repo.yml
+# `substrates:` entry, onto the REPO node, via a hardcoded allowlist (:504) that
+# never consulted this declaration. Until that emitter is removed, a repo that
+# declares substrates will put harness names on the same predicate that now means
+# a model id. W4R3Z's, flagged at the ruling.
 
 # =============================================================================
 # The statement lifecycle (SpoEvent)
