@@ -2,7 +2,7 @@
 # THE REFERENCE KIT ONTOLOGY  —  copy this file, rename it, fill it in.
 # =============================================================================
 #
-#   TEMPLATE VERSION: 1.1.0        (see "TEMPLATE CHANGELOG" at the bottom)
+#   TEMPLATE VERSION: 1.2.0        (see "TEMPLATE CHANGELOG" at the bottom)
 #   CURRENT FOR:      kit-base 0.11.0
 #   MAINTAINED BY:    the guardian seat (tr1p-l3x). Changes here are ontology
 #                     direction and route through Rob like any other.
@@ -261,17 +261,19 @@ garden:health a owl:DatatypeProperty ;
 #     possible: git-lex derives the full IRI from range + bare id
 #     (nquad.rs thing_iri_from_range), so a nonexistent target is caught.
 #
-# OPEN, AND ROB'S: typed relatedTo<Class>Id properties currently differ between
-# kits. soul:relatedToPursuitId is Lane A (brackets); copia's
-# relatedToScenarioId / relatedToPlaceId / relatedToBeingId are Lane B (bare,
-# Rob-ruled 2026-08-23). If you are adding one, ASK before you declare it.
-# The mechanism is not in dispute — only which lane the typed family should use.
+# RULED (Rob, 2026-08-26): TYPED relatedTo<Class>Id TAKES BRACKETS. A typed
+# reference property declares `rdfs:range git-lex:Thing` and its value is
+# <namespace/Class/identifier>, exactly like relatedToId. The class in the NAME
+# is the author's signal; it is not carried by the range.
 #
-# And note the range does ontological work either way. In RDFS a range is an
-# INFERENCE RULE, not a filter:  P range C  +  x P y  ⊨  y a C. Nothing
-# validates; the type is inferred. So the question is rarely "should we declare
-# this?" and usually "what does the data already say, and is our ontology just
-# declining to write it down?"
+# WHAT THIS GIVES UP, recorded because it was the real argument for the other
+# lane: a concrete range let git-lex resolve the bare id and REJECT a target
+# that does not exist, at save. Under git-lex:Thing a well-formed address to
+# nothing saves cleanly. Referential integrity for typed links is not currently
+# checked anywhere.
+#
+# Lane B therefore remains correct only where the value genuinely is a bare id
+# and no relatedTo* naming is involved (copia:lookMomentId is the shape).
 # -----------------------------------------------------------------------------
 
 # Lane A — points anywhere, across any kit, no coordination needed.
@@ -358,6 +360,14 @@ garden:Plant rdfs:subClassOf
 # =============================================================================
 # TEMPLATE CHANGELOG  —  this file's own history, newest first
 # =============================================================================
+# 1.2.0 (2026-08-26, Rob-ruled): TYPED relatedTo<Class>Id TAKES BRACKETS.
+#   §7 had this OPEN because soul and copia shipped opposite forms under the same
+#   name shape. Settled: rdfs:range git-lex:Thing, value <namespace/Class/id>.
+#   The class in the NAME is the author's signal; the range does not carry it.
+#   Records what it costs — the concrete range was what let git-lex reject a
+#   dangling target at save, and typed links now have no referential check
+#   anywhere. copia's four convert before push (th34, cheapest seat pre-landing).
+#
 # 1.1.0 (2026-08-26, tr1p-l3x): THE REGISTER TEST REPLACED, from field use.
 #   §3's rule was a cost argument — keep it short, it lands everywhere forever.
 #   True and useless: it does not tell an author what to CUT. th34 wrote all four
