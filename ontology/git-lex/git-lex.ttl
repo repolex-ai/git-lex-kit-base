@@ -28,7 +28,37 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.13.0" .
+    owl:versionInfo "0.14.0" .
+
+# v0.14 (2026-08-26, Rob-ruled): + git-lex:kitManaged — the flag that lets the
+#   kit RETRACT, which is the one thing it has never been able to do.
+#   THE BUG IT EXISTS FOR: kit-update converges files a kit SHIPS. A file the kit
+#   has STOPPED shipping is abandoned, not uninstalled. Observed twice in one day:
+#   a renamed skill left its old filename in place, and content/Raw/ survived at
+#   the repo root after the kit dropped it. The kit can plant and overwrite; it
+#   cannot retract.
+#   WHY A FLAG AND NOT THE HOOK MECHANISM, since hooks already solve this: hooks
+#   work by EXHAUSTIVE PATH OWNERSHIP — .claude/hooks/*.sh is either kit-shipped
+#   or `-local-`, and anything else is reaped. That works because git-lex owns
+#   the whole directory. It CANNOT work for Soul/Skill/ or any content path,
+#   because agents are told, in AGENTS.md, to write their own skills there. A
+#   shared namespace needs per-file provenance; an owned namespace does not.
+#   AND WHY DATA RATHER THAN A NAMING CONVENTION: the hook lane discriminates by
+#   filename (`-local-`) because a .sh has no frontmatter to hold anything.
+#   Documents do. A flag is a fact; a name prefix is a heuristic, and this seat's
+#   standing rule is to prefer the existence check.
+#   ABSENCE IS THE SAFE DEFAULT, deliberately. Not-asserted means "not mine, do
+#   not touch," so git-lex can only ever reap what it explicitly planted. A bug
+#   in the flag under-reaps and leaves litter; it cannot eat authored work.
+#   IT MUST LIVE IN THE FILE, not in a .lex/ manifest. `git lex nuke` deletes
+#   .lex/ and keeps content — a manifest would be destroyed exactly when the
+#   question "is this mine?" still needs answering. Rob's ruling that nuke and
+#   kit-remove should take managed files with them depends on this.
+#   READER NOT BUILT: nothing reads this yet. Spec for W4R3Z at
+#   subtexture/docs/git-lex/2026_08_26_KITMANAGED_REAP_SPEC.md. The declaration
+#   ships first here only because it is inert until something reads it — no
+#   existing value is reinterpreted, which is the condition the ordering law
+#   actually cares about.
 
 # v0.13 (2026-08-26, Rob-ruled): BOTH DATE PROPERTIES BECOME INSTANTS.
 #   dateCreated and dateUpdated flip xsd:date -> xsd:dateTime, ISO-8601 with
@@ -317,7 +347,7 @@ git-lex:fileId a owl:ObjectProperty ;
 # and the change is Rob's, queued for the pan sitting — not stamped in passing.
 git-lex:Thing a owl:Class ;
     rdfs:label "Thing" ;
-    rdfs:comment "An entity with its own identity and lifetime, as opposed to the file that carries it. Counterpart to git-lex:File: a File is an ADDRESS (its id is a path, and dies on rename), a Thing is a LIFETIME (its id is its own, and survives moves). Authored document classes and derived graph-only classes are both Things. The universal properties — id, title, description, abstract, cue, relatedToId, dateCreated, dateUpdated, substrate — have this as their domain." .
+    rdfs:comment "An entity with its own identity and lifetime, as opposed to the file that carries it. Counterpart to git-lex:File: a File is an ADDRESS (its id is a path, and dies on rename), a Thing is a LIFETIME (its id is its own, and survives moves). Authored document classes and derived graph-only classes are both Things. The universal properties — id, title, description, abstract, cue, relatedToId, dateCreated, dateUpdated, substrate, kitManaged — have this as their domain." .
 
 git-lex:id a owl:ObjectProperty ;
     rdfs:label "id" ;
@@ -353,6 +383,12 @@ git-lex:dateUpdated a owl:DatatypeProperty ;
     rdfs:comment "When this document last changed, ISO-8601 with offset. Maintained by git-lex on save — do not hand-edit." ;
     rdfs:domain git-lex:Thing ;
     rdfs:range xsd:dateTime .
+
+git-lex:kitManaged a owl:DatatypeProperty ;
+    rdfs:label "kitManaged" ;
+    rdfs:comment "True only in a file a KIT ships. git-lex may overwrite or delete it without asking — never add this to a document you wrote." ;
+    rdfs:domain git-lex:Thing ;
+    rdfs:range xsd:boolean .
 
 git-lex:substrate a owl:DatatypeProperty ;
     rdfs:label "substrate" ;
@@ -494,7 +530,8 @@ git-lex:Thing rdfs:subClassOf
     [ a owl:Restriction ; owl:onProperty git-lex:description ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:dateCreated ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:dateUpdated ; owl:maxCardinality 1 ] ,
-    [ a owl:Restriction ; owl:onProperty git-lex:substrate   ; owl:maxCardinality 1 ] .
+    [ a owl:Restriction ; owl:onProperty git-lex:substrate   ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:kitManaged  ; owl:maxCardinality 1 ] .
 
 # =============================================================================
 # CLASS-LEVEL ANNOTATIONS — what a kit says ABOUT its own classes
