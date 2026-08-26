@@ -140,7 +140,15 @@ def check(path: str) -> None:
             continue
         name = short(p)
         if not list(g.objects(p, RDFS.domain)):
-            errors.append(f"property {name}: no rdfs:domain")
+            # Not merely untidy. shacl.rs collects a class's properties by
+            # EXACT domain match, so a domain-less property matches no class:
+            # no shape, no validation, no template line. "Usable on any type"
+            # is spelled `rdfs:domain git-lex:Thing`, not by omission.
+            errors.append(
+                f"property {name}: no rdfs:domain — it will reach NO shape and "
+                f"NO template. For a property usable on any class, declare "
+                f"rdfs:domain git-lex:Thing."
+            )
         if not list(g.objects(p, RDFS.label)):
             advice.append(f"property {name}: no rdfs:label")
 
