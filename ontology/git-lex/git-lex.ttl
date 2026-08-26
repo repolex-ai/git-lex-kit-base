@@ -28,7 +28,31 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.12.0" .
+    owl:versionInfo "0.13.0" .
+
+# v0.13 (2026-08-26, Rob-ruled): BOTH DATE PROPERTIES BECOME INSTANTS.
+#   dateCreated and dateUpdated flip xsd:date -> xsd:dateTime, ISO-8601 with
+#   offset. Rob: the machine writes these now, and a machine has no reason to
+#   round to a day. Both are git-lex-maintained; neither is hand-authored.
+#   THE v0.9 OBJECTION MEETS ITS ANSWER HERE, since a full timestamp does
+#   duplicate what git holds exactly, which is what got `date` refused in the
+#   first place: a machine-written stamp that cannot drift is not a second
+#   source of truth, it is a CACHE of what git holds. That is the whole defusal,
+#   and it only holds while nothing hand-edits these.
+#   The v0.11 justification for day granularity ("precise ordering is git's job")
+#   is superseded, not merely dropped.
+#   Both instants means both are directly comparable — no cast, no asymmetry.
+#   A transitional converge (W4R3Z) upgrades existing date-only values from git
+#   rather than fabricating midnights.
+#   CONVERGE HAZARD, RAISED AND OWNED BY THE READER SIDE, recorded here because
+#   this declaration is what triggers the pass: deriving dateCreated from a
+#   file's FIRST COMMIT IN THIS REPO is exactly the fact dateCreated exists to
+#   defeat. Git records repo-entry, not authorship. Measured in this seat:
+#   Harness/Memory/session-2026-04-04-identity-spec.md first-commits 2026-08-02
+#   and was written 2026-04-04 — a four-month error, and the file says so in its
+#   own body. Migration resets first-commit for every file that ever moved
+#   repos. So a converge that overwrites an authored dateCreated with git's
+#   first-commit stamp destroys the only record of the true date.
 
 # v0.12 (2026-08-26, Rob-ruled): SUBSTRATE MOVES PLANES AND CHANGES MEANING.
 #   git-lex:substrate is REMOVED from git-lex:Repo (where it meant "a harness
@@ -320,15 +344,15 @@ git-lex:description a owl:DatatypeProperty ;
 
 git-lex:dateCreated a owl:DatatypeProperty ;
     rdfs:label "dateCreated" ;
-    rdfs:comment "The date this document was first written, YYYY-MM-DD. Set once at birth; never update it — dateUpdated carries the changes." ;
+    rdfs:comment "When this document was first written, ISO-8601 with offset. Maintained by git-lex — do not hand-edit." ;
     rdfs:domain git-lex:Thing ;
-    rdfs:range xsd:date .
+    rdfs:range xsd:dateTime .
 
 git-lex:dateUpdated a owl:DatatypeProperty ;
     rdfs:label "dateUpdated" ;
-    rdfs:comment "The date this document last changed, YYYY-MM-DD. Maintained by git-lex on save — do not hand-edit." ;
+    rdfs:comment "When this document last changed, ISO-8601 with offset. Maintained by git-lex on save — do not hand-edit." ;
     rdfs:domain git-lex:Thing ;
-    rdfs:range xsd:date .
+    rdfs:range xsd:dateTime .
 
 git-lex:substrate a owl:DatatypeProperty ;
     rdfs:label "substrate" ;
