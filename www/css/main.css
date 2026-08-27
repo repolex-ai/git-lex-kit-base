@@ -983,3 +983,34 @@ nav.modes {
     font-size: 10.5px;
     text-transform: lowercase;
 }
+
+/* Predicate switches in the Whole Soul HUD. Every relation the store holds is
+   listed with its count — including the ones that start off, because a
+   relation you can't see and can't count is the same as one that isn't there. */
+.soul-preds {
+    margin-top: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.9rem;
+    max-width: 640px;
+    pointer-events: auto;
+    font-size: 11px;
+}
+
+.soul-pred {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    cursor: pointer;
+    color: #333;
+}
+
+.soul-pred.off { color: #999; }
+
+.soul-pred input { margin: 0; }
+
+.soul-pred-n { color: #999; }
+
+/* A relation the graph is holding back. Muted, but present and countable —
+   the whole point is that you can see the size of what isn't drawn. */
+.pred-row-muted { opacity: 0.75; font-style: italic; }

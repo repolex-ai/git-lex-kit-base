@@ -703,6 +703,61 @@ function pickCanonicalType(types) {
     return specific || visible[0];
 }
 
+// Every relation the store actually HOLDS between two documents — not the ones
+// a route remembered to expose. /api/viz/edges returns md:linksTo plus a subset
+// of kit object-properties, and on @selkie's soul the subset misses more than
+// it carries: 1,394 gl:relatedToId, 376 includesItemId, 298 equippedByBeingId,
+// 148 connectsToPlaceId — her entire wardrobe-and-rooms structure — while the
+// canvas drew 2,272 chords and looked complete. An allow-list can only fail
+// silently. Asking the graph what it holds can only fail out loud, by drawing
+// something we then have to explain.
+//
+// rdf:type, gl:id and gl:fileId are excluded: plumbing, not meaning. Everything
+// else with an IRI object is a statement one document makes about another.
+async function fetchDocEdges() {
+    const rows = await sparql(`
+        PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        SELECT ?from ?predicate ?target WHERE {
+            GRAPH <${NOW_GRAPH}> {
+                ?from ?predicate ?target .
+                FILTER(isIRI(?target))
+                FILTER(?predicate != rdf:type &&
+                       ?predicate != gl:id &&
+                       ?predicate != gl:fileId)
+            }
+        }
+    `).catch(() => null);
+    // If the store can't answer, fall back to the route rather than drawing an
+    // edgeless graph and calling it a soul with no links.
+    if (!rows) {
+        return fetch(API + '/api/viz/edges').then(r => r.json())
+            .then(d => (d.results || []).map(r => ({ ...r, resolved: r.resolved })))
+            .catch(() => []);
+    }
+    // These come from the now view, which is the resolved half by construction;
+    // unresolved links live in md:unresolvedLink and are read separately.
+    return rows.map(r => ({ from: r.from, predicate: r.predicate, target: r.target, resolved: 'true' }));
+}
+
+// A relation whose edge count dwarfs the number of things it points AT is a fan,
+// not a web — 5,071 lookBeingId into 11 Beings says one true thing once and then
+// says it five thousand more times over the top of everything else. Callers use
+// this to decide what to draw by default; nothing is dropped without being
+// counted and named on screen.
+const EDGE_FAN_RATIO = 8;
+function edgeFanReport(edges) {
+    const byPred = new Map();
+    edges.forEach(e => {
+        let r = byPred.get(e.p || e.predicate);
+        if (!r) { r = { count: 0, targets: new Set() }; byPred.set(e.p || e.predicate, r); }
+        r.count++; r.targets.add(e.o || e.target);
+    });
+    const out = new Map();
+    byPred.forEach((r, uri) => out.set(uri, { count: r.count, fan: r.count / Math.max(1, r.targets.size) }));
+    return out;
+}
+
 async function loadGraph() {
     // Render-ready rows from the serve viz routes (Rob's ruling: the data
     // hands structure to the web side — no client-side munging). nodes =
@@ -714,7 +769,7 @@ async function loadGraph() {
     // bool column, never on RDF term kinds.
     const [nodeRows, edgeRows, aliasRows, unresolvedRows] = await Promise.all([
         fetch(API + '/api/viz/nodes').then(r => r.json()).then(d => d.results || []).catch(() => []),
-        fetch(API + '/api/viz/edges').then(r => r.json()).then(d => d.results || []).catch(() => []),
+        fetchDocEdges(),
         // A document has TWO subjects in the store: the File, which is where
         // body links land, and the Thing, which is where the kit class lands.
         // They are the same document. /api/viz/nodes returns both, and every
@@ -772,13 +827,32 @@ async function loadGraph() {
     // authored (Exploration -> Pursuit) never reached the canvas.
     // md:unresolvedLink targets are authored path strings, not IRIs; they
     // find nothing in the map and pass through untouched, which is correct.
-    const edges = edgeRows.map(r => ({
+    const allEdges = edgeRows.map(r => ({
         s: fileOfThing[r.from] || r.from,
         o: fileOfThing[r.target] || r.target,
         // Fallback keeps compat with a pre-predicate-column server.
         p: r.predicate || MD_LINKS_TO,
         resolved: r.resolved === 'true' || r.resolved === true,
     }));
+
+    // Hold back fan relations — thousands of edges converging on a handful of
+    // targets. Drawn, they bury every other relation in the graph and make the
+    // force layout meaningless; hidden silently, they are the same failure this
+    // whole day has been about. So they are counted, named, and reported in the
+    // predicates panel, and the Whole Soul view has a switch to turn each one
+    // back on.
+    const fanReport = edgeFanReport(allEdges);
+    graphState.suppressedPredicates = [];
+    const edges = allEdges.filter(e => {
+        const r = fanReport.get(e.p);
+        if (r && r.fan >= EDGE_FAN_RATIO && r.count > 200) return false;
+        return true;
+    });
+    fanReport.forEach((r, uri) => {
+        if (r.fan >= EDGE_FAN_RATIO && r.count > 200) {
+            graphState.suppressedPredicates.push({ uri, name: shortName(uri), count: r.count });
+        }
+    });
 
     // The demoted links join the same edge list, flagged unresolved. From here
     // they flow through machinery that already existed: they become dead-end
@@ -1007,6 +1081,19 @@ function renderGraphControls() {
             row.innerHTML = `
                 <span class="pred-swatch" style="background:${p.color}"></span>
                 <span>${p.name}</span>
+            `;
+            predEl.appendChild(row);
+        });
+        // Anything held back says so, with its count. A hidden relation you can
+        // see the size of is a decision; one you can't is a lie.
+        (graphState.suppressedPredicates || []).forEach(p => {
+            const row = document.createElement('div');
+            row.className = 'pred-row pred-row-muted';
+            row.title = p.uri + ' — held back: ' + p.count.toLocaleString() +
+                ' edges converging on a handful of targets. Whole Soul view has a switch for it.';
+            row.innerHTML = `
+                <span class="pred-swatch" style="background:transparent;border:1px dotted #999"></span>
+                <span>${p.name} <span style="color:#999">${p.count.toLocaleString()} held back</span></span>
             `;
             predEl.appendChild(row);
         });
@@ -2591,7 +2678,7 @@ async function initSoulView() {
     // log, which is the only place that knows when a document first existed.
     const [nodeRows, edgeRows, aliasRows, bornRows] = await Promise.all([
         fetch(API + '/api/viz/nodes').then(r => r.json()).then(d => d.results || []).catch(() => []),
-        fetch(API + '/api/viz/edges').then(r => r.json()).then(d => d.results || []).catch(() => []),
+        fetchDocEdges(),
         sparql(`
             PREFIX gl: <https://repolex.ai/ontology/git-lex/>
             SELECT ?thing ?file WHERE { GRAPH <${NOW_GRAPH}> { ?thing gl:fileId ?file } }
@@ -2745,22 +2832,46 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
     // Edges become chords. Endpoints go through the SAME fold as the nodes —
     // skipping that is how the repo graph silently dropped every Thing-plane
     // link for a day.
-    const seg = [];
-    let drawn = 0, dropped = 0;
+    //
+    // Kept per predicate, because on a real corpus one relation can outnumber
+    // every other by an order of magnitude — 5,071 lookBeingId against 11
+    // Beings — and drawing that unannounced turns the picture into a fan. All
+    // of them are here and counted; the ones that would swamp the view start
+    // switched off, and the legend says so instead of the code deciding
+    // quietly.
+    soul.edgesByPred = new Map();
+    let dropped = 0;
     edgeRows.forEach(e => {
         const a = posOf.get(fileOfThing.get(e.from) || e.from);
         const b = posOf.get(fileOfThing.get(e.target) || e.target);
-        if (a == null || b == null) { dropped++; return; }
-        seg.push(pos[a * 2], pos[a * 2 + 1], pos[b * 2], pos[b * 2 + 1]);
-        drawn++;
+        if (a == null || b == null || a === b) { dropped++; return; }
+        const bucket = soul.edgesByPred.get(e.predicate);
+        if (bucket) bucket.push(a, b); else soul.edgesByPred.set(e.predicate, [a, b]);
     });
 
     soul.nodes = docs;
     soul.pos = pos; soul.col = col; soul.siz = siz;
-    soul.lines = new Float32Array(seg);
-    soul.edgeCount = drawn;
-    soul.stats = { docs: n, edges: drawn, droppedEdges: dropped, undated,
-                   commits: (maxB - minB + 1), minB, maxB };
+
+    // A relation whose edge count dwarfs the number of things it points AT is a
+    // fan, not a web: it says one true thing once and then says it five
+    // thousand more times over the top of everything else.
+    const FAN_RATIO = 8;
+    soul.predicates = [...soul.edgesByPred.entries()]
+        .map(([uri, arr], i) => {
+            const count = arr.length / 2;
+            const targets = new Set();
+            for (let k = 1; k < arr.length; k += 2) targets.add(arr[k]);
+            return { uri, name: shortName(uri), count,
+                     fan: count / Math.max(1, targets.size),
+                     enabled: (count / Math.max(1, targets.size)) < FAN_RATIO,
+                     color: colorForEdge(i) };
+        })
+        .sort((a, b) => b.count - a.count);
+
+    soul.stats = { docs: n, droppedEdges: dropped, undated,
+                   commits: (maxB - minB + 1), minB, maxB,
+                   totalEdges: soul.predicates.reduce((t, p) => t + p.count, 0) };
+    soulRebuildLines();
 
     // Uniform grid for hover picking. Positions never move, so this is built
     // once and answers every mousemove in constant time.
@@ -2774,6 +2885,31 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
     soulRenderHud();
 }
 
+// Pack the enabled predicates into one line buffer. Positions never move, so
+// this runs on load and on a predicate toggle, never per frame.
+function soulRebuildLines() {
+    let total = 0;
+    soul.predicates.forEach(p => { if (p.enabled) total += soul.edgesByPred.get(p.uri).length / 2; });
+    const xy = new Float32Array(total * 4);
+    let w = 0;
+    soul.predicates.forEach(p => {
+        if (!p.enabled) return;
+        const arr = soul.edgesByPred.get(p.uri);
+        for (let i = 0; i < arr.length; i += 2) {
+            const a = arr[i], b = arr[i + 1];
+            xy[w++] = soul.pos[a * 2]; xy[w++] = soul.pos[a * 2 + 1];
+            xy[w++] = soul.pos[b * 2]; xy[w++] = soul.pos[b * 2 + 1];
+        }
+    });
+    soul.lines = xy;
+    soul.edgeCount = total;
+    if (soul.gpu) {
+        const gl = soul.gl;
+        gl.bindBuffer(gl.ARRAY_BUFFER, soul.gpu.bLine);
+        gl.bufferData(gl.ARRAY_BUFFER, soul.lines, gl.STATIC_DRAW);
+    }
+}
+
 function soulRenderHud() {
     const s = soul.stats;
     const hud = document.getElementById('soul-hud');
@@ -2782,11 +2918,29 @@ function soulRenderHud() {
         : '';
     hud.innerHTML =
         '<div class="soul-title">the whole soul</div>' +
-        `<div>${s.docs.toLocaleString()} documents · ${s.edges.toLocaleString()} links · ` +
-        `${s.commits.toLocaleString()} commits${undatedNote}</div>` +
+        `<div>${s.docs.toLocaleString()} documents · ${soul.edgeCount.toLocaleString()} of ` +
+        `${s.totalEdges.toLocaleString()} links drawn · ${s.commits.toLocaleString()} commits${undatedNote}` +
+        // Statements that point somewhere this view cannot draw — at a Moment,
+        // an image, anything that is not a document. They are real facts and
+        // they are not on the canvas, so the canvas says how many.
+        (s.droppedEdges ? ` · <span title="statements whose target is not a document — Moments, images, ids that resolve to nothing">${s.droppedEdges.toLocaleString()} point outside the document graph</span>` : '') +
+        '</div>' +
         '<div class="soul-sub">' + soul.classes.slice(0, 8).map(c =>
             `<span style="color:${c.color}">■</span> ${c.name} ${c.count.toLocaleString()}`).join(' &nbsp; ') +
+        '</div>' +
+        '<div class="soul-preds">' + soul.predicates.map((p, i) =>
+            `<label class="soul-pred${p.enabled ? '' : ' off'}" title="${p.uri}${p.fan >= 8 ? ' — off by default: ' + p.count.toLocaleString() + ' edges into ' + Math.round(p.count / p.fan).toLocaleString() + ' targets' : ''}">` +
+            `<input type="checkbox" data-pred="${i}"${p.enabled ? ' checked' : ''}> ` +
+            `${p.name} <span class="soul-pred-n">${p.count.toLocaleString()}</span></label>`).join('') +
         '</div>';
+    hud.querySelectorAll('input[data-pred]').forEach(box => {
+        box.addEventListener('change', () => {
+            soul.predicates[+box.dataset.pred].enabled = box.checked;
+            soulRebuildLines();
+            soulRenderHud();
+            soulDraw();
+        });
+    });
     document.getElementById('soul-axis').textContent =
         'centre = first commit · rim = today · one turn ≈ ' +
         Math.round(s.commits / soul.turns).toLocaleString() +
