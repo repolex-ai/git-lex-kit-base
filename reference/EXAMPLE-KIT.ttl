@@ -1,0 +1,391 @@
+# =============================================================================
+# THE REFERENCE KIT ONTOLOGY  —  copy this file, rename it, fill it in.
+# =============================================================================
+#
+#   TEMPLATE VERSION: 1.2.0        (see "TEMPLATE CHANGELOG" at the bottom)
+#   CURRENT FOR:      kit-base 0.11.0
+#   MAINTAINED BY:    the guardian seat (tr1p-l3x). Changes here are ontology
+#                     direction and route through Rob like any other.
+#
+# This file is a WORKING ONTOLOGY, not a snippet. It parses, and it is meant to
+# stay parsing — if you change it, run a Turtle parser over it before you push.
+# That is the whole reason it is a .ttl and not a markdown code block: a
+# template that cannot be validated rots without telling anyone.
+#
+# It describes a fictional "garden" kit. Every construct a real kit needs is
+# here exactly once, in the order you should write them.
+#
+# -----------------------------------------------------------------------------
+# TWO KINDS OF COMMENT, AND DO NOT MIX THEM UP
+# -----------------------------------------------------------------------------
+#   `#` comments  — teaching. For whoever reads or edits this ontology. Write
+#                   as much as the decision deserves. None of it ships anywhere.
+#
+#   rdfs:comment  — AUTHORING INSTRUCTION. `git lex create` lifts this VERBATIM
+#                   into the document beside the key, so it is read by an author
+#                   at the moment of typing. ONE SHORT LINE. Imperative. Name the
+#                   tempting wrong action.
+#
+# The rdfs:comment values below are deliberately terse. That is not laziness —
+# it is the standard being demonstrated. The long explanations all live in `#`.
+#
+# Why this matters, with a receipt: copia once had 15 multi-valued properties
+# whose comment read "Repeat for each." Cardinality was right, every reader
+# behaved, and the SENTENCE was wrong — an author hears "repeat" as "write the
+# key again," a repeated YAML key is undefined, and our parser takes last-wins.
+# Cost: 28 documents, ~60 values, one Outfit listing 8 items reduced to 1. The
+# clause that fixed it was "do not repeat the key" — naming the wrong action,
+# because "multi-valued" alone had not stopped it.
+# =============================================================================
+
+@prefix garden:  <https://repolex.ai/ontology/garden/> .
+@prefix git-lex: <https://repolex.ai/ontology/git-lex/> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+
+# -----------------------------------------------------------------------------
+# 1. THE ONTOLOGY HEADER
+# -----------------------------------------------------------------------------
+# The IRI has NO trailing slash here; the @prefix above does. That is correct
+# and not a typo — one names the ontology, the other is the namespace base.
+#
+# Bump owl:versionInfo on every change. It is how a reader knows whether the
+# installed copy matches what you are looking at.
+# -----------------------------------------------------------------------------
+
+<https://repolex.ai/ontology/garden> a owl:Ontology ;
+    rdfs:label "Garden Kit Ontology" ;
+    rdfs:comment "What this kit is for, in one sentence." ;
+    owl:versionInfo "0.1.0" .
+
+# -----------------------------------------------------------------------------
+# 2. THE CHANGELOG BLOCK  —  write this EVERY time, directly under the header
+# -----------------------------------------------------------------------------
+# Newest first. One block per version. This is the primary source for what the
+# contract IS — more authoritative than the data, and the place to look before
+# grepping a corpus to find out how something is supposed to work.
+#
+# Each block says: what changed, WHY, who ruled it, and what was deliberately
+# NOT done. The refusals are the most valuable part six months later, because
+# they are what stop the same proposal coming back.
+#
+# v0.1 (YYYY-MM-DD, Rob-ruled): FIRST CUT.
+#   (1) + garden:Plant, foldered, with garden:plantId as its anchor.
+#   (2) + garden:health as a closed enum — three values, because a free string
+#   would have made "which plants are struggling" a text search.
+#   DELIBERATELY NOT ADDED: garden:notes. It has no reader, so it fails the
+#   why-test and belongs in the document body.
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# 3. A FOLDERED CLASS  —  a document type someone writes by hand
+# -----------------------------------------------------------------------------
+# `git-lex:foldered true` means: scaffold a folder, generate a __Plant.md
+# template, add `git lex create plant`. Leave it off and the class is graph-only
+# (see §8).
+#
+# git-lex:authoringGuidance says what belongs in the BODY. It is delivered by
+# `create` and written into the __Plant.md template; it does NOT land in the
+# document, and it is NEVER enforced — no gate, no warning, nothing in verify.
+#
+# THE REGISTER TEST (th34's formulation, 2026-08-26, and it is better than the
+# one it replaces). The old rule was a cost argument: keep it short because it
+# lands in every template forever. True, but it does not tell you what to cut.
+# This does:
+#
+#   WRITE WHAT BELONGS IN EACH SECTION. DO NOT TEACH HOW TO DO THE SECTION WELL.
+#
+# Those produce different text, and the second is a manual wearing guidance's
+# clothes. Earned on copia:Scenario — a class whose entire point is its body
+# prose, the case most likely to break the cap. It came in at three sections and
+# 507 characters, and the author's report was that the constraint made the
+# guidance BETTER: the theory he wanted room for was teaching, not specifying.
+#
+# Section count follows from the content, not from a number. Five is defensible
+# when five things are genuinely distinct (copia:ScenarioTake: Intent and
+# Prediction are falsifiable-before-firing, Changed is the experiment's only
+# variable — collapsing them would hide that). Paragraphs are the smell, not
+# sections.
+#
+# FORMAT IS IN REGISTER WHEN THE FORMAT CARRIES MEANING THAT IS OTHERWISE LOST.
+# "Use sentence case," "keep paragraphs short," "write in past tense" are style,
+# and they belong in a Skill. But copia:Shotlist asks for a NUMBERED markdown
+# list, and that is content: the list number IS the shot number, the handle that
+# traces a bad frame back to the line that made it. The evidence is 588 existing
+# shot lists holding 17,329 bare unnumbered lines — which markdown renders as a
+# single joined paragraph, destroying the line boundaries that were the meaning.
+# Test to apply: WOULD OMITTING THE FORMAT LOSE INFORMATION? Yes → say it. No →
+# it is taste, leave it out.
+# -----------------------------------------------------------------------------
+
+garden:Plant a owl:Class ;
+    rdfs:subClassOf git-lex:Thing ;
+    git-lex:foldered true ;
+    rdfs:label "Plant" ;
+    rdfs:comment "A plant under care: what it is, where it lives, how it is doing." ;
+    git-lex:authoringGuidance """
+## Condition
+What it looks like right now. Observations, not plans.
+
+## History
+What you have done to it, and when.
+""" .
+
+# `rdfs:subClassOf git-lex:Thing` is REQUIRED, and it is the line people forget.
+# Without it the class is not a Thing, so none of the eight universal properties
+# (id, title, description, abstract, cue, relatedToId, dateCreated, dateUpdated)
+# apply to it.
+
+# -----------------------------------------------------------------------------
+# 4. IDENTITY  —  every foldered class needs exactly one strategy. THERE ARE TWO.
+# -----------------------------------------------------------------------------
+# Pick one deliberately and say which in a comment. Neither is deprecated.
+#
+#   (a) CONVENTION ANCHOR — a <class>Id property, shown below. The older and
+#       still the common case across soul, squad, and most of copia.
+#
+#   (b) THE UNIVERSAL git-lex:id — no <class>Id at all. Rob-ruled 2026-08-23 for
+#       copia's newest classes: the Thing plane already supplies an authored,
+#       rename-surviving id, so a <class>Id would be a SECOND identity for the
+#       same node. `title` carries what a per-class name field would have.
+#
+# If you choose (b), WRITE A COMMENT SAYING SO. Otherwise the next reader — and
+# every linter — reads a missing <class>Id as an oversight rather than a choice.
+#
+# The rest of this section is (a).
+#
+# Named <lowerCamelClassName> + "Id". Derived by convention, NOT configurable —
+# there is no annotation pointing elsewhere, on purpose.
+#
+# THIS IS THE KEYSTONE. It is what lifts the document's facts onto the Thing
+# plane. Without it, every kit-dotted key silently falls back to the File node
+# and dies the next time the file moves.
+#
+# Two consequences worth knowing before you edit one:
+#   - NEVER inherit identity from an abstract parent. The tooling derives the
+#     property from the CONCRETE class's own name, so an inherited id is
+#     invisible to it. copia's Set/Sequence once inherited groupId and every
+#     Set anchored to nothing.
+#   - Identity properties are the ONE exception to "delete unused properties
+#     freely." Deleting this line demotes every existing Plant to the File
+#     plane, silently. If you must, the reader's fallback lane goes in the same
+#     change.
+# -----------------------------------------------------------------------------
+
+garden:plantId a owl:DatatypeProperty ;
+    rdfs:label "plantId" ;
+    rdfs:comment "Unique identifier for this plant — same as the filename." ;
+    rdfs:domain garden:Plant ;
+    rdfs:range xsd:string .
+
+# -----------------------------------------------------------------------------
+# 5. A PLAIN PROPERTY
+# -----------------------------------------------------------------------------
+# Before you add ANY property, run the why-test:
+#
+#     Name the system that breaks without it. Cannot name one? It goes in the
+#     document body, where grep finds it fine.
+#
+# Exactly four shapes reliably pass, because only these have a reader: an id, a
+# strict enum, a required field, a real edge. "It would be nice to query" is not
+# a system. Popularity is not either — `tags` had 699 uses across 12 repos and
+# was refused, because no application read it.
+# -----------------------------------------------------------------------------
+
+garden:wateredOn a owl:DatatypeProperty ;
+    rdfs:label "wateredOn" ;
+    rdfs:comment "The date this plant was last watered, YYYY-MM-DD." ;
+    rdfs:domain garden:Plant ;
+    rdfs:range xsd:date .
+
+# -----------------------------------------------------------------------------
+# 6. AN ENUM  —  declare the value set as a datatype, then point a range at it
+# -----------------------------------------------------------------------------
+# Any other value is rejected at save with a clear message. That rejection IS
+# the justification — an enum passes the why-test because something enforces it.
+#
+# Put the allowed values in the rdfs:comment too. The author is choosing one at
+# the moment they read it, and making them open the ontology to find the list is
+# a small cruelty repeated forever.
+# -----------------------------------------------------------------------------
+
+garden:HealthValue a rdfs:Datatype ;
+    owl:oneOf ( "thriving" "okay" "struggling" ) .
+
+garden:health a owl:DatatypeProperty ;
+    rdfs:label "health" ;
+    rdfs:comment "One of: thriving, okay, struggling." ;
+    rdfs:domain garden:Plant ;
+    rdfs:range garden:HealthValue .
+
+# For a bound rather than a list, declare the base type and its restrictions:
+#
+#   garden:RatingValue a rdfs:Datatype ;
+#       owl:onDatatype xsd:integer ;
+#       owl:withRestrictions ( [ xsd:minInclusive 1 ] [ xsd:maxInclusive 5 ] ) .
+#
+# Translated facets: minInclusive, maxInclusive, minExclusive, maxExclusive,
+# minLength, maxLength, pattern. Anything else warns that the bound is NOT
+# enforced — declared bounds are never silently dropped.
+
+# -----------------------------------------------------------------------------
+# 7. REFERENCE PROPERTIES  —  READ THIS TWICE, IT IS THE SHARPEST TRAP
+# -----------------------------------------------------------------------------
+# rdfs:range is not documentation here. It is a CONTRACT ABOUT WHAT THE AUTHOR
+# TYPES, and git-lex parses the value differently depending on which you chose.
+# Selection is EXACT EQUALITY on the range IRI — no subclass walk, and the
+# property's NAME is never consulted.
+#
+#   LANE A   rdfs:range git-lex:Thing      →  <namespace/Class/id>   (brackets)
+#   LANE B   rdfs:range <a concrete class> →  bare-id                (no brackets)
+#
+# THE TRAP: a bracketed value under a CONCRETE range does not error. It
+# percent-encodes into the identifier —
+#
+#     you meant   →   https://repolex.ai/garden/Bed/south-wall
+#     you got     →   https://repolex.ai/garden/Bed/%3Cgarden/Bed/south-wall%3E
+#
+# No warning. The reference points at an address nothing describes, and every
+# join through it silently returns nothing.
+#
+# So: NAMING THE EXACT CLASS FEELS MORE CORRECT AND IS THE RISKIER CHOICE —
+# not because Lane B is wrong, but because it commits your authors to the bare
+# form, and a bracketed value typed into it fails silently instead of loudly.
+#
+# WHICH TO PICK:
+#   Lane A when the target could be ANYTHING — any class, any kit. relatedToId
+#     itself is the type case.
+#   Lane B when the target is always ONE known class AND you want a dangling
+#     reference to fail AT SAVE. The declared range is what makes that check
+#     possible: git-lex derives the full IRI from range + bare id
+#     (nquad.rs thing_iri_from_range), so a nonexistent target is caught.
+#
+# RULED (Rob, 2026-08-26): TYPED relatedTo<Class>Id TAKES BRACKETS. A typed
+# reference property declares `rdfs:range git-lex:Thing` and its value is
+# <namespace/Class/identifier>, exactly like relatedToId. The class in the NAME
+# is the author's signal; it is not carried by the range.
+#
+# WHAT THIS GIVES UP, recorded because it was the real argument for the other
+# lane: a concrete range let git-lex resolve the bare id and REJECT a target
+# that does not exist, at save. Under git-lex:Thing a well-formed address to
+# nothing saves cleanly. Referential integrity for typed links is not currently
+# checked anywhere.
+#
+# Lane B therefore remains correct only where the value genuinely is a bare id
+# and no relatedTo* naming is involved (copia:lookMomentId is the shape).
+# -----------------------------------------------------------------------------
+
+# Lane A — points anywhere, across any kit, no coordination needed.
+garden:relatedToBedId a owl:ObjectProperty ;
+    rdfs:label "relatedToBedId" ;
+    rdfs:comment "The Bed this plant relates to, written <garden/Bed/identifier>." ;
+    rdfs:domain garden:Plant ;
+    rdfs:range git-lex:Thing .
+
+# Lane B — one known class in this kit, terse bare-id value.
+garden:livesInBedId a owl:ObjectProperty ;
+    rdfs:label "livesInBedId" ;
+    rdfs:comment "The Bed this plant is planted in — the bed's bare bedId." ;
+    rdfs:domain garden:Plant ;
+    rdfs:range garden:Bed .
+
+# A multi-valued property. Note the clause doing the work: "do not repeat the
+# key." That is the sentence that stopped 60 values from disappearing.
+garden:companionPlantId a owl:ObjectProperty ;
+    rdfs:label "companionPlantId" ;
+    rdfs:comment "Multi-valued — one <garden/Plant/identifier> per list item; do not repeat the key." ;
+    rdfs:domain garden:Plant ;
+    rdfs:range git-lex:Thing .
+
+# -----------------------------------------------------------------------------
+# 8. A GRAPH-ONLY CLASS  —  real, but nobody authors a document for it
+# -----------------------------------------------------------------------------
+# No git-lex:foldered, so no folder, no template, no create command. Something
+# else builds these — a tool, an importer, a derivation.
+#
+# It is STILL a Thing if it has its own identity. "Foldered" and "is a Thing"
+# are different questions; they used to coincide, which is how an earlier
+# definition of Thing came to say "every foldered class is a Thing." That was
+# true of what happened to exist at the time and was never the definition.
+# -----------------------------------------------------------------------------
+
+garden:Bed a owl:Class ;
+    rdfs:subClassOf git-lex:Thing ;
+    rdfs:label "Bed" ;
+    rdfs:comment "A planting bed. Derived from the site survey; not hand-authored." .
+
+garden:bedId a owl:DatatypeProperty ;
+    rdfs:label "bedId" ;
+    rdfs:comment "Unique identifier for this bed." ;
+    rdfs:domain garden:Bed ;
+    rdfs:range xsd:string .
+
+# -----------------------------------------------------------------------------
+# 9. CARDINALITY  —  say it once, at the bottom, for the whole class
+# -----------------------------------------------------------------------------
+# Single-valued properties get owl:maxCardinality 1. A REQUIRED property gets
+# owl:minCardinality 1 — but think hard before you add one to an existing class:
+# a new requirement walls people out of their own repos on their next save.
+#
+# The safe sequence is DECLARE TOOTHLESS → BACKFILL → REQUIRE, and the requiring
+# is a separate decision made later, not a thing you slip in with the field.
+# -----------------------------------------------------------------------------
+
+garden:Plant rdfs:subClassOf
+    [ a owl:Restriction ; owl:onProperty garden:plantId     ; owl:minCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty garden:plantId     ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty garden:health      ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty garden:livesInBedId ; owl:maxCardinality 1 ] .
+
+# =============================================================================
+# BEFORE YOU PUBLISH  —  the checklist
+# =============================================================================
+#   [ ] Rob has ruled on it. Ontology direction is not a squaddie request.
+#   [ ] Every property passes the why-test — you can NAME the reader.
+#   [ ] Every foldered class has rdfs:subClassOf git-lex:Thing.
+#   [ ] Every foldered class has its <class>Id, on the concrete class.
+#   [ ] Every class has rdfs:label AND rdfs:comment.
+#   [ ] Every property has rdfs:domain, rdfs:range, rdfs:label, rdfs:comment.
+#   [ ] Every rdfs:comment is ONE line of instruction, naming the wrong action.
+#   [ ] Every enum lists its values in the comment.
+#   [ ] Reference properties declare the lane you actually want (§7).
+#   [ ] You deleted unused properties rather than deprecating them — EXCEPT
+#       identity properties, which are read (§4).
+#   [ ] If the meaning of existing values changed, the READER SHIPPED FIRST.
+#   [ ] owl:versionInfo bumped, changelog block written (§2).
+#   [ ] IT PARSES. Actually run a parser. Do not assume.
+# =============================================================================
+
+# =============================================================================
+# TEMPLATE CHANGELOG  —  this file's own history, newest first
+# =============================================================================
+# 1.2.0 (2026-08-26, Rob-ruled): TYPED relatedTo<Class>Id TAKES BRACKETS.
+#   §7 had this OPEN because soul and copia shipped opposite forms under the same
+#   name shape. Settled: rdfs:range git-lex:Thing, value <namespace/Class/id>.
+#   The class in the NAME is the author's signal; the range does not carry it.
+#   Records what it costs — the concrete range was what let git-lex reject a
+#   dangling target at save, and typed links now have no referential check
+#   anywhere. copia's four convert before push (th34, cheapest seat pre-landing).
+#
+# 1.1.0 (2026-08-26, tr1p-l3x): THE REGISTER TEST REPLACED, from field use.
+#   §3's rule was a cost argument — keep it short, it lands everywhere forever.
+#   True and useless: it does not tell an author what to CUT. th34 wrote all four
+#   copia guidance blocks against 1.0.0 and came back with the better rule: write
+#   what belongs in each section, do not teach how to do the section well. Earned
+#   on Scenario, the case most likely to break the cap (its whole point is body
+#   prose) — three sections, 507 chars, and the constraint improved the result.
+#   Also: section COUNT follows content, not a number (ScenarioTake defends five);
+#   and FORMAT is in register when the format carries meaning otherwise lost —
+#   Shotlist's numbered list, where the number IS the shot number, against 17,329
+#   existing bare lines that markdown renders as one joined paragraph.
+#
+# 1.0.0 (2026-08-25, tr1p-l3x, Rob-requested): First cut. Written because th34
+#   and Rob needed something to point at while authoring new classes, and
+#   because "the proper way to write one" existed only across four docs, several
+#   changelogs, and one seat's head.
+#   Shipped as a PARSING .ttl rather than a markdown template, deliberately: a
+#   template that cannot be validated rots silently, and this one is meant to
+#   become a pre-publish check. The checklist above is written as mechanical
+#   assertions on purpose — every line is something a linter can test.
+# =============================================================================
