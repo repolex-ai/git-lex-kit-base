@@ -2925,8 +2925,20 @@ function soulRenderHud() {
         // they are not on the canvas, so the canvas says how many.
         (s.droppedEdges ? ` · <span title="statements whose target is not a document — Moments, images, ids that resolve to nothing">${s.droppedEdges.toLocaleString()} point outside the document graph</span>` : '') +
         '</div>' +
+        // The legend showed the top eight and said nothing about the rest, so on
+        // an 18-class soul it quietly implied there were eight. A legend that
+        // disagrees with the picture is the same defect as a picture that
+        // disagrees with the data — and it is invisible from inside either
+        // half. (@w3bl0rd's other seat, via nug3's audit of the subtexture
+        // page, where a card said "specified" and the prose two sections down
+        // told you to go run it.)
         '<div class="soul-sub">' + soul.classes.slice(0, 8).map(c =>
             `<span style="color:${c.color}">■</span> ${c.name} ${c.count.toLocaleString()}`).join(' &nbsp; ') +
+        (soul.classes.length > 8
+            ? ` &nbsp; <span title="${soul.classes.slice(8).map(c => c.name + ' ' + c.count).join(', ')}">` +
+              `+${soul.classes.length - 8} more classes, ` +
+              `${soul.classes.slice(8).reduce((t, c) => t + c.count, 0).toLocaleString()} documents</span>`
+            : '') +
         '</div>' +
         '<div class="soul-preds">' + soul.predicates.map((p, i) =>
             `<label class="soul-pred${p.enabled ? '' : ' off'}" title="${p.uri}${p.fan >= 8 ? ' — off by default: ' + p.count.toLocaleString() + ' edges into ' + Math.round(p.count / p.fan).toLocaleString() + ' targets' : ''}">` +
