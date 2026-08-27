@@ -2676,7 +2676,7 @@ async function initSoulView() {
     // repo graph uses; the alias join folds each document's Thing onto its File
     // (see loadGraph — same reasoning, same map); births come from the event
     // log, which is the only place that knows when a document first existed.
-    const [nodeRows, edgeRows, aliasRows, bornRows] = await Promise.all([
+    const [nodeRows, edgeRows, aliasRows, bornRows, dateRows] = await Promise.all([
         fetch(API + '/api/viz/nodes').then(r => r.json()).then(d => d.results || []).catch(() => []),
         fetchDocEdges(),
         sparql(`
@@ -2695,6 +2695,18 @@ async function initSoulView() {
                 GRAPH <${COMMITS_GRAPH}> { ?c g2:ordinalDerived ?ord }
             } GROUP BY ?s
         `).catch(() => []),
+        // Two anchors and a direction is all an axis needs. Without a date the
+        // ticks say "a turn closed here" and nothing about WHEN, and the rim
+        // just stops.
+        sparql(`
+            PREFIX g2: <https://repolex.ai/ontology/git-lex/git2/>
+            SELECT ?ord ?when WHERE {
+                GRAPH <${COMMITS_GRAPH}> {
+                    ?c g2:ordinalDerived ?ord ; g2:author ?sig .
+                    ?sig g2:xsdDateTimeDerived ?when .
+                }
+            }
+        `).catch(() => []),
     ]);
 
     if (!nodeRows.length) {
@@ -2703,7 +2715,7 @@ async function initSoulView() {
         return;
     }
 
-    soulBuild(nodeRows, edgeRows, aliasRows, bornRows);
+    soulBuild(nodeRows, edgeRows, aliasRows, bornRows, dateRows);
     soulInitRenderer();
     soulBindInput();
     soul.ready = true;
@@ -2712,7 +2724,7 @@ async function initSoulView() {
 
 // Fold twins, lay out, colour, and pack straight into typed arrays. One pass,
 // no intermediate object graph to walk per frame.
-function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
+function soulBuild(nodeRows, edgeRows, aliasRows, bornRows, dateRows) {
     const fileOfThing = new Map();
     aliasRows.forEach(r => { if (r.thing && r.file) fileOfThing.set(r.thing, r.file); });
 
@@ -2756,7 +2768,10 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
     const meaningful = ranked.filter(([uri]) => uri !== GENERIC_FILE);
     const generic = ranked.filter(([uri]) => uri === GENERIC_FILE);
     soul.classes = meaningful
-        .map(([uri, count], i) => ({ uri, count, name: shortName(uri), color: colorForClass(i) }))
+        // Stride the palette instead of walking it. Consecutive entries were
+        // landing on near-identical blues — Note and Soul were indistinguishable
+        // in the legend — and a legend you cannot read is a legend that lies.
+        .map(([uri, count], i) => ({ uri, count, name: shortName(uri), color: colorForClass(i * 5) }))
         .concat(generic.map(([uri, count]) => ({ uri, count, name: shortName(uri), color: '#b9b9bd' })));
     const colorOf = new Map(soul.classes.map(c => [c.uri, c.color]));
 
@@ -2809,25 +2824,42 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
         if (g) g.push(d); else groups.set(k, [d]);
     });
     groups.forEach(g => g.forEach((d, i) => { d.groupIdx = i; d.groupSize = g.length; }));
-    const arcPerCommit = (2 * Math.PI * soul.turns) / Math.max(1, span);
 
     docs.forEach((d, i) => {
         let t;
         if (d.born == null) { t = 1; undated++; } else { t = (d.born - minB) / span; }
         const j = hash(d.id);
-        // Fan within the commit, widening a little for very large groups so a
-        // 500-document import doesn't overlap itself into a solid bar.
-        const fanWidth = arcPerCommit * Math.min(6, Math.max(1, Math.log2(d.groupSize + 1)));
-        const fan = d.groupSize > 1
-            ? ((d.groupIdx + 0.5) / d.groupSize - 0.5) * fanWidth
+        const theta = 2 * Math.PI * soul.turns * t;
+        const r = 0.12 + 0.86 * t;
+
+        // Documents born in the same commit are spread ACROSS the track, never
+        // along it. The first version fanned them along the angle, and angle IS
+        // time here — so a 51-document import spread over 29 degrees of arc and
+        // read as a stretch of work, which is the exact misreading the import
+        // note was added to prevent, reappearing one level down. Time is the
+        // only thing allowed to move a dot around the spiral; how MANY there
+        // were moves it across.
+        //
+        // Offset along the local normal of the spiral, capped well under the
+        // gap between turns so a big commit becomes a visible bar rather than a
+        // stripe that eats its neighbours.
+        const dr = 0.86;
+        const dth = 2 * Math.PI * soul.turns;
+        const tx = dr * Math.cos(theta) - r * dth * Math.sin(theta);
+        const ty = dr * Math.sin(theta) + r * dth * Math.cos(theta);
+        const tl = Math.hypot(tx, ty) || 1;
+        const nx = -ty / tl, ny = tx / tl;
+        const turnGap = 0.86 / soul.turns;
+        const spread = Math.min(turnGap * 0.55,
+                                0.012 * Math.max(1, Math.log2(d.groupSize + 1)));
+        const across = d.groupSize > 1
+            ? ((d.groupIdx + 0.5) / d.groupSize - 0.5) * 2 * spread
             : 0;
-        const theta = 2 * Math.PI * soul.turns * t + fan + (j - 0.5) * 0.05;
-        // Radius also fans slightly, so a dense commit reads as a short comb
-        // rather than a hairline.
-        const rFan = d.groupSize > 1 ? ((hash(d.id + 'g') - 0.5) * 0.02) : 0;
-        const r = 0.12 + 0.86 * t + (hash(d.id + 'r') - 0.5) * 0.02 + rFan;
-        const x = Math.cos(theta) * r;
-        const y = Math.sin(theta) * r;
+        // A whisper of deterministic scatter, also across the track, so equal
+        // groups don't render as a ruler.
+        const wobble = (j - 0.5) * Math.min(turnGap * 0.12, 0.02);
+        const x = Math.cos(theta) * r + nx * (across + wobble);
+        const y = Math.sin(theta) * r + ny * (across + wobble);
         pos[i * 2] = x; pos[i * 2 + 1] = y;
         posOf.set(d.id, i);
         d.x = x; d.y = y;
@@ -2904,6 +2936,11 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
     const importish = biggestBirth && biggestBirth.count >= Math.max(10, n * 0.08)
         ? biggestBirth : null;
 
+    const dateOfOrd = new Map();
+    (dateRows || []).forEach(r => { if (r.ord != null && r.when) dateOfOrd.set(+r.ord, String(r.when).slice(0, 10)); });
+    soul.firstDate = dateOfOrd.get(minB) || null;
+    soul.lastDate = dateOfOrd.get(maxB) || null;
+
     soul.stats = { docs: n, droppedEdges: dropped, undated,
                    commits: (maxB - minB + 1), minB, maxB, importish,
                    distinctBirths: birthCounts.size,
@@ -2937,6 +2974,19 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
     // Centre mark — the first commit, which is otherwise the emptiest part of
     // the picture and reads as an absence rather than a beginning.
     guide.push(-0.02, 0, 0.02, 0, 0, -0.02, 0, 0.02);
+
+    // Arrowhead at the outer end. A spiral without one is ambiguous about
+    // rotation: you can see that position is time and still not know which way
+    // time runs. One path segment settles it permanently.
+    {
+        const thEnd = 2 * Math.PI * soul.turns;
+        const rEnd = 0.98;
+        const ex = Math.cos(thEnd) * rEnd, ey = Math.sin(thEnd) * rEnd;
+        const dirx = -Math.sin(thEnd), diry = Math.cos(thEnd);   // travel direction
+        const back = 0.055, side = 0.028;
+        guide.push(ex, ey, ex - dirx * back + diry * side, ey - diry * back - dirx * side);
+        guide.push(ex, ey, ex - dirx * back - diry * side, ey - diry * back + dirx * side);
+    }
     soul.guide = new Float32Array(guide);
 
     // Uniform grid for hover picking. Positions never move, so this is built
@@ -3036,8 +3086,11 @@ function soulRenderHud() {
         ? ` · <span title="one commit, ${s.importish.count} documents — an import or a migration, not a week of work">` +
           `${s.importish.count.toLocaleString()} share one birth commit</span>`
         : '';
+    const span = (soul.firstDate && soul.lastDate)
+        ? `centre = ${soul.firstDate} · arrow = ${soul.lastDate} · `
+        : 'centre = first commit · rim = today · ';
     document.getElementById('soul-axis').innerHTML =
-        'centre = first commit · rim = today · one turn ≈ ' +
+        span + 'one turn ≈ ' +
         Math.round(s.commits / soul.turns).toLocaleString() +
         ' commits · dot size = how often it changed' + importNote +
         ' · scroll to zoom, drag to pan' +
