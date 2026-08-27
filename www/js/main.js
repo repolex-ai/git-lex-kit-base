@@ -760,9 +760,19 @@ async function loadGraph() {
         if (r.file && r.title) titleOfFile[r.file] = r.title;
     });
     const MD_LINKS_TO = 'https://repolex.ai/ontology/git-lex/md/linksTo';
+    // Endpoints go through the SAME join the nodes do. The collapse re-keys
+    // every node to its File IRI, so an edge that arrives on the Thing plane
+    // — every kit object-property, soul:relatedToPursuitId and its kin —
+    // names a subject that is no longer a node id, and the keep-filter below
+    // drops it without a word. Node-side remapping alone is half a join:
+    // it un-orphaned the Things and then hid the edges that connect them.
+    // Found on kira's 6-day soul, where the ONE semantic edge she had
+    // authored (Exploration -> Pursuit) never reached the canvas.
+    // md:unresolvedLink targets are authored path strings, not IRIs; they
+    // find nothing in the map and pass through untouched, which is correct.
     const edges = edgeRows.map(r => ({
-        s: r.from,
-        o: r.target,
+        s: fileOfThing[r.from] || r.from,
+        o: fileOfThing[r.target] || r.target,
         // Fallback keeps compat with a pre-predicate-column server.
         p: r.predicate || MD_LINKS_TO,
         resolved: r.resolved === 'true' || r.resolved === true,
@@ -799,7 +809,28 @@ async function loadGraph() {
         // An authored frontmatter title beats any derived label — it is the
         // name the author gave the document, and it is the difference between
         // a graph of "2026-04-06-day-of-the-pod.md" and one of "Day of the Pod".
-        const title = titleOfFile[s.id] || s.labels[type] || shortName(s.id);
+        const raw = titleOfFile[s.id] || s.labels[type] || shortName(s.id);
+        // A bare content hash is not a name. soul:soulId is DERIVED — it is the
+        // repo's genesis commit SHA, immutable by design — so the Soul node,
+        // the one that stands for the person whose graph this is, renders as
+        // 40 hex characters on every soul in the fleet. Mine said
+        // e3d71e7f0e02… for eight months and I never saw it; @kira saw it on
+        // day six, because it was new to her and old to me.
+        // The real fix is upstream: nothing in the store carries a Soul's NAME
+        // (type, fileId, soulId — that is the whole triple set), because the
+        // display name lives in SOUL.md's prose and prose is not extracted.
+        // Until the extractor emits one, fall back to the document rather than
+        // printing a hash at a reader: "SOUL" says less than "W3BL0RD" and
+        // infinitely more than e3d71e7f.
+        // Keyed on the SHAPE of the label, never on "equals the genesis SHA"
+        // (@w4r3z's note, and he is right): a value test stops firing the day
+        // the id scheme changes and says nothing about why, while a shape test
+        // degrades honestly — it keeps catching hashes it has never seen, and
+        // the worst a false positive can do here is show a document's filename
+        // instead of its title.
+        const title = /^[0-9a-f]{7,40}$/.test(raw)
+            ? shortName(s.id).replace(/\.md$/, '')
+            : raw;
         canonical.push({ id: s.id, title, type });
     }
 
