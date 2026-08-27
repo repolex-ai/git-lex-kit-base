@@ -3086,9 +3086,22 @@ function soulRenderHud() {
         ? ` · <span title="one commit, ${s.importish.count} documents — an import or a migration, not a week of work">` +
           `${s.importish.count.toLocaleString()} share one birth commit</span>`
         : '';
+    // The arrow marks the newest commit IN THE STORE, which is not the same as
+    // now — the store is a snapshot taken when the server started, and every
+    // commit since is invisible here. Left unlabelled, the edge of the data
+    // reads as the edge of the work, and a reader sees an absence as a fact
+    // about the soul rather than a fact about the sync. Say which it is.
+    // (Fourth label-outran-its-data defect found today; see the memory.)
+    let staleNote = '';
+    if (soul.lastDate) {
+        const days = Math.floor((Date.now() - Date.parse(soul.lastDate + 'T12:00:00Z')) / 86400000);
+        if (days >= 2) {
+            staleNote = ` <span class="soul-stale" title="This view reads a store snapshot taken when the server started. Anything committed since is not here. Press sync, then reload.">(store snapshot — ${days} days ago; press sync)</span>`;
+        }
+    }
     const span = (soul.firstDate && soul.lastDate)
-        ? `centre = ${soul.firstDate} · arrow = ${soul.lastDate} · `
-        : 'centre = first commit · rim = today · ';
+        ? `centre = ${soul.firstDate} · arrow = ${soul.lastDate}${staleNote} · `
+        : 'centre = first commit · rim = newest commit in the store · ';
     document.getElementById('soul-axis').innerHTML =
         span + 'one turn ≈ ' +
         Math.round(s.commits / soul.turns).toLocaleString() +

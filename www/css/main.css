@@ -1018,3 +1018,8 @@ nav.modes {
 /* The count of statements the view cannot draw. Dotted underline because it
    holds the list — a number you can reach beats a number you can only read. */
 .soul-dropped { border-bottom: 1px dotted #999; cursor: help; pointer-events: auto; }
+
+/* Recency error-bar. The arrow marks the newest commit in the STORE, and the
+   store is a photograph — this is the word that keeps a reader from mistaking
+   the edge of the data for the edge of the work. */
+.soul-stale { color: #a04030; border-bottom: 1px dotted #a04030; cursor: help; pointer-events: auto; }
