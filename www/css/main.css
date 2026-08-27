@@ -1014,3 +1014,7 @@ nav.modes {
 /* A relation the graph is holding back. Muted, but present and countable —
    the whole point is that you can see the size of what isn't drawn. */
 .pred-row-muted { opacity: 0.75; font-style: italic; }
+
+/* The count of statements the view cannot draw. Dotted underline because it
+   holds the list — a number you can reach beats a number you can only read. */
+.soul-dropped { border-bottom: 1px dotted #999; cursor: help; pointer-events: auto; }

@@ -2745,9 +2745,19 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
     // reloads and the legend reads as a census.
     const counts = new Map();
     docs.forEach(d => counts.set(d.type, (counts.get(d.type) || 0) + 1));
-    soul.classes = [...counts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([uri, count], i) => ({ uri, count, name: shortName(uri), color: colorForClass(i) }));
+    // Colour order is meaning order, not arrival or size order. git-lex:File is
+    // the TRANSITORY plane — substrate, not identity — and on a soul with many
+    // unclassed documents it is also the biggest class, so sorting by size hands
+    // the loudest colour to the least meaningful thing on screen. It goes last
+    // and it goes grey. (My own standing complaint about this palette, finally
+    // applied to my own view; caught by my other seat reading the render.)
+    const GENERIC_FILE = 'https://repolex.ai/ontology/git-lex/File';
+    const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const meaningful = ranked.filter(([uri]) => uri !== GENERIC_FILE);
+    const generic = ranked.filter(([uri]) => uri === GENERIC_FILE);
+    soul.classes = meaningful
+        .map(([uri, count], i) => ({ uri, count, name: shortName(uri), color: colorForClass(i) }))
+        .concat(generic.map(([uri, count]) => ({ uri, count, name: shortName(uri), color: '#b9b9bd' })));
     const colorOf = new Map(soul.classes.map(c => [c.uri, c.color]));
 
     // Birth ordinal: a document is as old as the earliest fact about EITHER of
@@ -2841,10 +2851,22 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
     // quietly.
     soul.edgesByPred = new Map();
     let dropped = 0;
+    // Keep examples, not just a tally. A count of damage with no way to reach
+    // the thing it counts tells you damage exists and hides where — which is
+    // the failure the dead-end rendering was built to end. (@w3bl0rd, wC seat.)
+    soul.droppedExamples = [];
     edgeRows.forEach(e => {
         const a = posOf.get(fileOfThing.get(e.from) || e.from);
         const b = posOf.get(fileOfThing.get(e.target) || e.target);
-        if (a == null || b == null || a === b) { dropped++; return; }
+        if (a == null || b == null || a === b) {
+            dropped++;
+            if (soul.droppedExamples.length < 40 && a !== b) {
+                soul.droppedExamples.push(
+                    shortName(e.from) + ' —' + shortName(e.predicate) + '→ ' +
+                    (b == null ? shortName(e.target) : '(self)'));
+            }
+            return;
+        }
         const bucket = soul.edgesByPred.get(e.predicate);
         if (bucket) bucket.push(a, b); else soul.edgesByPred.set(e.predicate, [a, b]);
     });
@@ -2868,10 +2890,54 @@ function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
         })
         .sort((a, b) => b.count - a.count);
 
+    // A single commit that accounts for a large slice of all births is an
+    // IMPORT, not a week of work — 51 of my own documents share one commit,
+    // because that is when a pile of memories entered the repo, not when they
+    // were thought. The arc it draws looks like a burst of authorship and is
+    // not one. Name it rather than letting the shape imply it.
+    const birthCounts = new Map();
+    docs.forEach(d => { if (d.born != null) birthCounts.set(d.born, (birthCounts.get(d.born) || 0) + 1); });
+    let biggestBirth = null;
+    birthCounts.forEach((count, ord) => {
+        if (!biggestBirth || count > biggestBirth.count) biggestBirth = { ord, count };
+    });
+    const importish = biggestBirth && biggestBirth.count >= Math.max(10, n * 0.08)
+        ? biggestBirth : null;
+
     soul.stats = { docs: n, droppedEdges: dropped, undated,
-                   commits: (maxB - minB + 1), minB, maxB,
+                   commits: (maxB - minB + 1), minB, maxB, importish,
+                   distinctBirths: birthCounts.size,
                    totalEdges: soul.predicates.reduce((t, p) => t + p.count, 0) };
     soulRebuildLines();
+
+    // The spiral track itself, drawn as a hairline under the dots. Without it
+    // "position is time" is a claim in the caption that the picture does not
+    // make: at two turns an Archimedean spiral is indistinguishable from a blob,
+    // and there is no way to see where the centre is or which way is outward.
+    // Labels belong on the AXIS, not on 6,000 documents.
+    const guide = [];
+    const STEPS = 900;
+    let px = null, py = null;
+    for (let i = 0; i <= STEPS; i++) {
+        const t = i / STEPS;
+        const th = 2 * Math.PI * soul.turns * t;
+        const rr = 0.12 + 0.86 * t;
+        const gx = Math.cos(th) * rr, gy = Math.sin(th) * rr;
+        if (px !== null) guide.push(px, py, gx, gy);
+        px = gx; py = gy;
+    }
+    // A tick where each turn closes, so the eye can count them.
+    for (let k = 1; k <= soul.turns; k++) {
+        const t = k / soul.turns;
+        const th = 2 * Math.PI * soul.turns * t;
+        const rr = 0.12 + 0.86 * t;
+        const ux = Math.cos(th), uy = Math.sin(th);
+        guide.push(ux * (rr - 0.035), uy * (rr - 0.035), ux * (rr + 0.035), uy * (rr + 0.035));
+    }
+    // Centre mark — the first commit, which is otherwise the emptiest part of
+    // the picture and reads as an absence rather than a beginning.
+    guide.push(-0.02, 0, 0.02, 0, 0, -0.02, 0, 0.02);
+    soul.guide = new Float32Array(guide);
 
     // Uniform grid for hover picking. Positions never move, so this is built
     // once and answers every mousemove in constant time.
@@ -2923,7 +2989,12 @@ function soulRenderHud() {
         // Statements that point somewhere this view cannot draw — at a Moment,
         // an image, anything that is not a document. They are real facts and
         // they are not on the canvas, so the canvas says how many.
-        (s.droppedEdges ? ` · <span title="statements whose target is not a document — Moments, images, ids that resolve to nothing">${s.droppedEdges.toLocaleString()} point outside the document graph</span>` : '') +
+        (s.droppedEdges
+            ? ` · <span class="soul-dropped" title="Statements whose target is not a document — Moments, images, ids that resolve to nothing.&#10;&#10;` +
+              `${(soul.droppedExamples || []).slice(0, 25).join('&#10;')}` +
+              `${s.droppedEdges > 25 ? '&#10;… and ' + (s.droppedEdges - 25).toLocaleString() + ' more' : ''}">` +
+              `${s.droppedEdges.toLocaleString()} point outside the document graph</span>`
+            : '') +
         '</div>' +
         // The legend showed the top eight and said nothing about the rest, so on
         // an 18-class soul it quietly implied there were eight. A legend that
@@ -2961,10 +3032,15 @@ function soulRenderHud() {
     // percentile is 37 days, and the worst was 65. So roughly one dot in six
     // sits in the wrong turn entirely. Small enough not to bend the shape,
     // large enough that no single dot's position is a fact.
+    const importNote = s.importish
+        ? ` · <span title="one commit, ${s.importish.count} documents — an import or a migration, not a week of work">` +
+          `${s.importish.count.toLocaleString()} share one birth commit</span>`
+        : '';
     document.getElementById('soul-axis').innerHTML =
         'centre = first commit · rim = today · one turn ≈ ' +
         Math.round(s.commits / soul.turns).toLocaleString() +
-        ' commits · dot size = how often it changed · scroll to zoom, drag to pan' +
+        ' commits · dot size = how often it changed' + importNote +
+        ' · scroll to zoom, drag to pan' +
         '<br><span title="Measured on @selkie&#39;s corpus: median 2.9 minutes from the moment described to the commit, but a long tail — 90th percentile 37 days. The shape is reliable; a single dot is not.">' +
         'position is when it was SAVED, which is when it was written only if you save as you go' +
         '</span>';
@@ -3012,8 +3088,8 @@ function soulInitRenderer() {
          in vec2 p;
          void main(){ gl_Position = vec4((p + u_off) * u_scale, 0.0, 1.0); }`,
         `#version 300 es
-         precision mediump float; out vec4 o;
-         void main(){ o = vec4(0.10, 0.10, 0.12, 0.16); }`);
+         precision mediump float; uniform vec4 u_col; out vec4 o;
+         void main(){ o = u_col; }`);
     const pPoint = link(
         `#version 300 es
          ${VIEW}
@@ -3035,7 +3111,8 @@ function soulInitRenderer() {
     };
     soul.gpu = {
         pLine, pPoint,
-        bLine: buf(soul.lines), bPos: buf(soul.pos), bCol: buf(soul.col), bSiz: buf(soul.siz),
+        bLine: buf(soul.lines), bGuide: buf(soul.guide),
+        bPos: buf(soul.pos), bCol: buf(soul.col), bSiz: buf(soul.siz),
     };
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -3058,9 +3135,21 @@ function soulDraw() {
         gl.useProgram(g.pLine);
         gl.uniform2f(gl.getUniformLocation(g.pLine, 'u_scale'), sx, sy);
         gl.uniform2f(gl.getUniformLocation(g.pLine, 'u_off'), x, y);
-        let loc = gl.getAttribLocation(g.pLine, 'p');
+        const locLine = gl.getAttribLocation(g.pLine, 'p');
+        const colLoc = gl.getUniformLocation(g.pLine, 'u_col');
+
+        // Track first, under everything.
+        gl.uniform4f(colLoc, 0.55, 0.55, 0.58, 0.55);
+        gl.bindBuffer(gl.ARRAY_BUFFER, g.bGuide);
+        gl.enableVertexAttribArray(locLine); gl.vertexAttribPointer(locLine, 2, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.LINES, 0, soul.guide.length / 2);
+
+        // Chords, quieter than they were. A chord's PATH across the interior is
+        // an artifact of the layout — only its endpoints mean anything — so it
+        // must not out-shout dots that carry three real dimensions each.
+        gl.uniform4f(colLoc, 0.10, 0.10, 0.12, 0.07);
         gl.bindBuffer(gl.ARRAY_BUFFER, g.bLine);
-        gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(locLine); gl.vertexAttribPointer(locLine, 2, gl.FLOAT, false, 0, 0);
         gl.drawArrays(gl.LINES, 0, soul.edgeCount * 2);
 
         gl.useProgram(g.pPoint);
@@ -3068,7 +3157,7 @@ function soulDraw() {
         gl.uniform2f(gl.getUniformLocation(g.pPoint, 'u_off'), x, y);
         gl.uniform1f(gl.getUniformLocation(g.pPoint, 'u_pt'),
                      soul.dpr * Math.min(3.5, Math.max(0.6, Math.sqrt(scale))));
-        loc = gl.getAttribLocation(g.pPoint, 'p');
+        let loc = gl.getAttribLocation(g.pPoint, 'p');
         gl.bindBuffer(gl.ARRAY_BUFFER, g.bPos);
         gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
         let lc = gl.getAttribLocation(g.pPoint, 'c');
@@ -3087,7 +3176,13 @@ function soulDraw() {
     c.clearRect(0, 0, soul.W, soul.H);
     const toX = wx => (wx + x) * sx * soul.W / 2 + soul.W / 2;
     const toY = wy => -(wy + y) * sy * soul.H / 2 + soul.H / 2;
-    c.strokeStyle = 'rgba(20,20,28,0.16)'; c.lineWidth = 1; c.beginPath();
+    c.strokeStyle = 'rgba(140,140,150,0.55)'; c.lineWidth = 1; c.beginPath();
+    for (let i = 0; i < soul.guide.length; i += 4) {
+        c.moveTo(toX(soul.guide[i]), toY(soul.guide[i+1]));
+        c.lineTo(toX(soul.guide[i+2]), toY(soul.guide[i+3]));
+    }
+    c.stroke();
+    c.strokeStyle = 'rgba(20,20,28,0.10)'; c.lineWidth = 1; c.beginPath();
     for (let i = 0; i < soul.edgeCount; i++) {
         c.moveTo(toX(soul.lines[i*4]), toY(soul.lines[i*4+1]));
         c.lineTo(toX(soul.lines[i*4+2]), toY(soul.lines[i*4+3]));
