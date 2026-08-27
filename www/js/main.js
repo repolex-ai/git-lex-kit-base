@@ -880,6 +880,10 @@ async function loadGraph() {
 
     // Build node objects.
     const nodeById = {};
+    // Start at CONSTANT DENSITY, not a constant box. 6.4k nodes dropped into
+    // the same 400px square that held 130 sit ~5px apart, and a 1/d^2
+    // repulsion at 5px is enormous — the first step alone launches them.
+    const INITIAL_SPREAD = 400 * Math.max(1, Math.sqrt(canonical.length / 150));
     graphState.nodes = canonical.map(n => {
         const cls = classMap[n.type];
         const node = {
@@ -888,8 +892,8 @@ async function loadGraph() {
             type: n.type,
             typeName: cls.name,
             color: cls.color,
-            x: (Math.random() - 0.5) * 400,
-            y: (Math.random() - 0.5) * 400,
+            x: (Math.random() - 0.5) * INITIAL_SPREAD,
+            y: (Math.random() - 0.5) * INITIAL_SPREAD,
             vx: 0, vy: 0,
             size: 6,
             degree: 0,
@@ -1020,6 +1024,14 @@ const LAYOUT = {
     ORPHAN_PULL: 0.014,    // extra centering force for degree ≤ 1 nodes
     DAMPING: 0.45,
     STEP: 0.4,
+    // Everything below is what it takes to survive a real soul. @selkie's is
+    // 6,359 nodes; the constants above were tuned on 25-150 and the comment
+    // said so. At 6.4k the all-pairs loop is 40M distance checks per frame AND
+    // the forces diverge: measured coordinates of 1.1e50 after nine seconds,
+    // which draws as a blank canvas with a correct-looking node count.
+    REPULSION_CUTOFF: 320,  // 1/d^2 past this is noise; lets us grid the sum
+    MIN_DIST2: 64,          // floor of 1 let coincident nodes fire 9000-unit kicks
+    MAX_SPEED: 120,         // hard ceiling per step — the anti-explosion bolt
 };
 
 // Run one physics step over the currently-visible nodes/edges.
@@ -1035,22 +1047,45 @@ function stepForceLayout() {
 
     let totalKE = 0;
 
-    // Repulsion
+    // Repulsion, summed over a uniform grid rather than every pair. Cell size
+    // IS the cutoff, so the 3x3 neighbourhood around a node contains every
+    // other node that could still be pushing on it. Small graphs land in one
+    // or two cells and behave exactly as they did before.
+    const CUT = LAYOUT.REPULSION_CUTOFF;
+    const CUT2 = CUT * CUT;
+    const grid = new Map();
+    for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        const k = Math.floor(n.x / CUT) + ',' + Math.floor(n.y / CUT);
+        const bucket = grid.get(k);
+        if (bucket) bucket.push(n); else grid.set(k, [n]);
+    }
+
     for (let i = 0; i < nodes.length; i++) {
         const a = nodes[i];
         let fx = 0, fy = 0;
-        for (let j = 0; j < nodes.length; j++) {
-            if (i === j) continue;
-            const b = nodes[j];
-            const dx = a.x - b.x;
-            const dy = a.y - b.y;
-            const dist2 = Math.max(dx * dx + dy * dy, 1);
-            const dist = Math.sqrt(dist2);
-            // Bigger nodes push harder so hubs don't stack on each other.
-            const sizeBoost = (a.size + b.size) / 24;
-            const force = LAYOUT.REPULSION * sizeBoost / dist2;
-            fx += (dx / dist) * force;
-            fy += (dy / dist) * force;
+        const cx = Math.floor(a.x / CUT);
+        const cy = Math.floor(a.y / CUT);
+        for (let ox = -1; ox <= 1; ox++) {
+            for (let oy = -1; oy <= 1; oy++) {
+                const bucket = grid.get((cx + ox) + ',' + (cy + oy));
+                if (!bucket) continue;
+                for (let j = 0; j < bucket.length; j++) {
+                    const b = bucket[j];
+                    if (b === a) continue;
+                    const dx = a.x - b.x;
+                    const dy = a.y - b.y;
+                    let dist2 = dx * dx + dy * dy;
+                    if (dist2 > CUT2) continue;
+                    dist2 = Math.max(dist2, LAYOUT.MIN_DIST2);
+                    const dist = Math.sqrt(dist2);
+                    // Bigger nodes push harder so hubs don't stack on each other.
+                    const sizeBoost = (a.size + b.size) / 24;
+                    const force = LAYOUT.REPULSION * sizeBoost / dist2;
+                    fx += (dx / dist) * force;
+                    fy += (dy / dist) * force;
+                }
+            }
         }
         // Centering. Low-degree nodes (orphans + one-edge leaves) get a
         // stronger pull so they don't drift off-screen.
@@ -1076,9 +1111,19 @@ function stepForceLayout() {
         e.target.vy -= uy * force;
     });
 
-    // Integrate. Off-screen nodes still tick so they keep their relative
-    // positions when their class is re-enabled.
+    // Integrate, with a speed ceiling. A hub with 123 edges accumulates 123
+    // spring forces in one step; unclamped, one bad frame throws it far enough
+    // that the next frame's springs are worse, and the graph leaves the
+    // universe in about ten frames. Clamping costs a little settling speed and
+    // buys the guarantee that a big graph draws SOMETHING.
+    const MAX2 = LAYOUT.MAX_SPEED * LAYOUT.MAX_SPEED;
     graphState.nodes.forEach(n => {
+        const sp2 = n.vx * n.vx + n.vy * n.vy;
+        if (sp2 > MAX2) {
+            const scale = LAYOUT.MAX_SPEED / Math.sqrt(sp2);
+            n.vx *= scale;
+            n.vy *= scale;
+        }
         n.x += n.vx * LAYOUT.STEP;
         n.y += n.vy * LAYOUT.STEP;
         totalKE += n.vx * n.vx + n.vy * n.vy;
@@ -1095,13 +1140,21 @@ let _layoutEnergy = 0;
 // Higher floor = settles faster, less "cutesy floaty drift". The graph
 // locks in once it's good enough rather than forever-jiggling.
 const ENERGY_FLOOR = 8;
+// Kinetic energy is a SUM over nodes, so a fixed floor is really a per-node
+// floor that shrinks as the graph grows: 6.4k nodes idling at a jiggle never
+// drop under 8, so the settle branch never runs, so the graph never recenters
+// and never auto-fits. Scale the floor with the node count and "settled" means
+// the same thing at every size.
+function energyFloor() {
+    return Math.max(ENERGY_FLOOR, graphState.nodes.length * 0.05);
+}
 
 function animateLayout() {
     _layoutRAF = null;
     const ke = stepForceLayout();
     _layoutEnergy = _layoutEnergy * 0.9 + ke * 0.1;
     drawGraph();
-    if (_layoutEnergy > ENERGY_FLOOR) {
+    if (_layoutEnergy > energyFloor()) {
         _layoutRAF = requestAnimationFrame(animateLayout);
     } else {
         // Settled — recenter so the graph sits at world origin regardless of
@@ -1163,7 +1216,12 @@ function settleAndAnimate() {
     // Heavy warm-start: do most of the settling synchronously so the user
     // sees a (mostly) stable graph on first paint instead of watching it
     // crawl into place over a few seconds.
-    for (let i = 0; i < 350; i++) stepForceLayout();
+    // Warm-start steps cost O(nodes) each now, not O(nodes^2), but 350 of them
+    // on a 6k graph is still seconds of frozen tab before first paint. Spend a
+    // fixed work budget instead: small graphs get the full settle, big ones get
+    // a head start and finish under the animator where the user can watch.
+    const warm = Math.max(60, Math.min(350, Math.floor(500000 / graphState.nodes.length)));
+    for (let i = 0; i < warm; i++) stepForceLayout();
     recenterGraph();
     fitGraphToViewport();
     kickSimulation();
@@ -2470,3 +2528,4 @@ async function updateSnapshotPill() {
         // Network error or malformed response — leave pill hidden.
     }
 }
+
