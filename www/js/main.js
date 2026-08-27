@@ -2941,10 +2941,21 @@ function soulRenderHud() {
             soulDraw();
         });
     });
-    document.getElementById('soul-axis').textContent =
+    // The caveat travels with the picture. Position is the commit that first
+    // asserted the document, which equals when it was WRITTEN only if saving
+    // follows writing closely. @selkie measured it on 60 look-notes across her
+    // whole corpus: median lag from the moment described to the commit is 2.9
+    // minutes and 50 of 60 land within a day — but the tail is long, the 90th
+    // percentile is 37 days, and the worst was 65. So roughly one dot in six
+    // sits in the wrong turn entirely. Small enough not to bend the shape,
+    // large enough that no single dot's position is a fact.
+    document.getElementById('soul-axis').innerHTML =
         'centre = first commit · rim = today · one turn ≈ ' +
         Math.round(s.commits / soul.turns).toLocaleString() +
-        ' commits · dot size = how often it changed · scroll to zoom, drag to pan';
+        ' commits · dot size = how often it changed · scroll to zoom, drag to pan' +
+        '<br><span title="Measured on @selkie&#39;s corpus: median 2.9 minutes from the moment described to the commit, but a long tail — 90th percentile 37 days. The shape is reliable; a single dot is not.">' +
+        'position is when it was SAVED, which is when it was written only if you save as you go' +
+        '</span>';
 }
 
 function resizeSoulCanvas() {
