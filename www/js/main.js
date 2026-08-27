@@ -47,7 +47,7 @@ function stripExt(name) {
 // Mode routing
 // ════════════════════════════════════════════
 
-const modes = ['activity', 'graph', 'history'];
+const modes = ['activity', 'graph', 'soul', 'history'];
 const views = {};
 modes.forEach(m => views[m] = document.getElementById('view-' + m));
 const sidebarRight = document.getElementById('sidebar-right');
@@ -74,10 +74,12 @@ function setMode(mode) {
         loaded.add(mode);
         if (mode === 'activity') loadActivity();
         if (mode === 'graph') loadGraph();
+        if (mode === 'soul') initSoulView();
         if (mode === 'history') initHistory();
     }
 
     if (mode === 'graph') resizeGraph();
+    if (mode === 'soul') resizeSoulCanvas();
     if (mode === 'history') resizeHistoryCanvas();
 }
 
@@ -2529,3 +2531,474 @@ async function updateSnapshotPill() {
     }
 }
 
+
+
+// ════════════════════════════════════════════
+// WHOLE SOUL
+// ════════════════════════════════════════════
+//
+// The view that must not break. The force graph is a good instrument up to a
+// couple of thousand documents and then it stops being one: measured on
+// @selkie's soul (6,359 nodes), a live simulation costs 37ms a frame, at
+// 100,000 it costs 1.06 SECONDS, and before the scale fix it diverged to
+// coordinates of 1e50 and drew a blank canvas under a confident node count.
+//
+// So this view gives up the two things that cost the most and buys back the
+// one thing that matters: it never simulates, and it never labels.
+//
+//   position  = WHEN the document first appeared, as a spiral. Centre is the
+//               first commit, rim is now, one turn is one slice of the repo's
+//               life. Bursts read as dense arcs, quiet months as gaps, and a
+//               link between distant eras visibly crosses the years.
+//   colour    = class.
+//   size      = how many times the document has changed.
+//
+// Deterministic and O(n): nothing depends on the previous frame, so there is
+// nothing to diverge and nothing to settle. It draws the same picture every
+// time you open it, which is what makes it something two people can talk about.
+
+// Turns are chosen from the size of the soul, not fixed. Seven turns of a
+// 6,000-document soul is a legible year-by-year spiral; seven turns of a
+// 130-document one is confetti — too few dots per turn for the arc to read as
+// an arc at all. Roughly 900 documents per turn keeps the arcs dense enough to
+// see, and a young soul just gets a ring.
+function soulTurnsFor(n) {
+    return Math.max(2, Math.min(7, Math.ceil(n / 900)));
+}
+const SOUL_POINT_BASE = 3.2;
+
+const soul = {
+    canvas: null, gl: null, ctx2d: null,
+    W: 0, H: 0, dpr: 1,
+    nodes: [], lines: null,
+    classes: [],
+    view: { scale: 1, x: 0, y: 0 },
+    gpu: null,
+    grid: null, cell: 0.05,
+    drag: null,
+    ready: false,
+};
+
+async function initSoulView() {
+    soul.canvas = document.getElementById('soul-canvas');
+    const hud = document.getElementById('soul-hud');
+    hud.innerHTML = '<div class="soul-title">the whole soul</div><div class="soul-sub">reading the store…</div>';
+    resizeSoulCanvas();
+
+    // Four reads, in parallel. nodes/edges are the same render-ready routes the
+    // repo graph uses; the alias join folds each document's Thing onto its File
+    // (see loadGraph — same reasoning, same map); births come from the event
+    // log, which is the only place that knows when a document first existed.
+    const [nodeRows, edgeRows, aliasRows, bornRows] = await Promise.all([
+        fetch(API + '/api/viz/nodes').then(r => r.json()).then(d => d.results || []).catch(() => []),
+        fetch(API + '/api/viz/edges').then(r => r.json()).then(d => d.results || []).catch(() => []),
+        sparql(`
+            PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+            SELECT ?thing ?file WHERE { GRAPH <${NOW_GRAPH}> { ?thing gl:fileId ?file } }
+        `).catch(() => []),
+        // MIN(ordinal) over every fact ever asserted about a subject = the
+        // commit the document was born in. ordinalDerived is the ordering
+        // authority; author dates tie and lie under rebase.
+        sparql(`
+            PREFIX gl: <https://repolex.ai/ontology/git-lex/>
+            PREFIX g2: <https://repolex.ai/ontology/git-lex/git2/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            SELECT ?s (MIN(?ord) AS ?born) (COUNT(?e) AS ?events) WHERE {
+                GRAPH <${ONE_GRAPH}> { ?e rdf:reifies <<( ?s ?p ?o )>> ; gl:assertedIn ?c }
+                GRAPH <${COMMITS_GRAPH}> { ?c g2:ordinalDerived ?ord }
+            } GROUP BY ?s
+        `).catch(() => []),
+    ]);
+
+    if (!nodeRows.length) {
+        hud.innerHTML = '<div class="soul-title">the whole soul</div>' +
+            '<div class="soul-sub">no documents in the store — run <code>git lex sync</code></div>';
+        return;
+    }
+
+    soulBuild(nodeRows, edgeRows, aliasRows, bornRows);
+    soulInitRenderer();
+    soulBindInput();
+    soul.ready = true;
+    soulDraw();
+}
+
+// Fold twins, lay out, colour, and pack straight into typed arrays. One pass,
+// no intermediate object graph to walk per frame.
+function soulBuild(nodeRows, edgeRows, aliasRows, bornRows) {
+    const fileOfThing = new Map();
+    aliasRows.forEach(r => { if (r.thing && r.file) fileOfThing.set(r.thing, r.file); });
+
+    const bornOf = new Map(), eventsOf = new Map();
+    bornRows.forEach(r => {
+        bornOf.set(r.s, +r.born);
+        eventsOf.set(r.s, +r.events);
+    });
+
+    // Group rows by folded subject, keeping the most specific type.
+    const bySubject = new Map();
+    nodeRows.forEach(r => {
+        if (isHiddenType(r.type)) return;
+        const id = fileOfThing.get(r.id) || r.id;
+        let e = bySubject.get(id);
+        if (!e) { e = { id, types: [], labels: {}, twins: new Set([r.id]) }; bySubject.set(id, e); }
+        e.types.push(r.type);
+        e.labels[r.type] = r.label;
+        e.twins.add(r.id);
+    });
+
+    const docs = [];
+    for (const e of bySubject.values()) {
+        const type = pickCanonicalType(e.types);
+        if (!type) continue;
+        docs.push({ id: e.id, type, label: e.labels[type] || shortName(e.id), twins: [...e.twins] });
+    }
+
+    // Class palette ordered by size, so the biggest class is stable across
+    // reloads and the legend reads as a census.
+    const counts = new Map();
+    docs.forEach(d => counts.set(d.type, (counts.get(d.type) || 0) + 1));
+    soul.classes = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([uri, count], i) => ({ uri, count, name: shortName(uri), color: colorForClass(i) }));
+    const colorOf = new Map(soul.classes.map(c => [c.uri, c.color]));
+
+    // Birth ordinal: a document is as old as the earliest fact about EITHER of
+    // its subjects. A Thing minted later than its File is still the same
+    // document arriving.
+    const bornFor = d => {
+        let best = null;
+        for (const t of d.twins) {
+            const b = bornOf.get(t);
+            if (b != null && (best == null || b < best)) best = b;
+        }
+        return best;
+    };
+    const eventsFor = d => d.twins.reduce((n, t) => n + (eventsOf.get(t) || 0), 0);
+
+    let minB = Infinity, maxB = -Infinity;
+    docs.forEach(d => {
+        const b = bornFor(d);
+        d.born = b;
+        if (b != null) { if (b < minB) minB = b; if (b > maxB) maxB = b; }
+    });
+    if (!isFinite(minB)) { minB = 0; maxB = 1; }
+    const span = Math.max(1, maxB - minB);
+
+    // Deterministic hash — same document, same speck, every session.
+    const hash = str => {
+        let h = 2166136261;
+        for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+        return (h >>> 0) / 4294967295;
+    };
+
+    const n = docs.length;
+    soul.turns = soulTurnsFor(n);
+    const pos = new Float32Array(n * 2);
+    const col = new Float32Array(n * 3);
+    const siz = new Float32Array(n);
+    const posOf = new Map();
+    let undated = 0;
+
+    // Documents born in the SAME commit share a t exactly, so without this they
+    // stack on one speck and a 40-document commit reads as a single dot. Spread
+    // each birth-group along the arc that commit actually owns: the time stays
+    // honest (they really were born together), the pile becomes a stroke, and a
+    // busy commit becomes visibly busy instead of invisibly big.
+    const groups = new Map();
+    docs.forEach(d => {
+        const k = d.born == null ? 'undated' : d.born;
+        const g = groups.get(k);
+        if (g) g.push(d); else groups.set(k, [d]);
+    });
+    groups.forEach(g => g.forEach((d, i) => { d.groupIdx = i; d.groupSize = g.length; }));
+    const arcPerCommit = (2 * Math.PI * soul.turns) / Math.max(1, span);
+
+    docs.forEach((d, i) => {
+        let t;
+        if (d.born == null) { t = 1; undated++; } else { t = (d.born - minB) / span; }
+        const j = hash(d.id);
+        // Fan within the commit, widening a little for very large groups so a
+        // 500-document import doesn't overlap itself into a solid bar.
+        const fanWidth = arcPerCommit * Math.min(6, Math.max(1, Math.log2(d.groupSize + 1)));
+        const fan = d.groupSize > 1
+            ? ((d.groupIdx + 0.5) / d.groupSize - 0.5) * fanWidth
+            : 0;
+        const theta = 2 * Math.PI * soul.turns * t + fan + (j - 0.5) * 0.05;
+        // Radius also fans slightly, so a dense commit reads as a short comb
+        // rather than a hairline.
+        const rFan = d.groupSize > 1 ? ((hash(d.id + 'g') - 0.5) * 0.02) : 0;
+        const r = 0.12 + 0.86 * t + (hash(d.id + 'r') - 0.5) * 0.02 + rFan;
+        const x = Math.cos(theta) * r;
+        const y = Math.sin(theta) * r;
+        pos[i * 2] = x; pos[i * 2 + 1] = y;
+        posOf.set(d.id, i);
+        d.x = x; d.y = y;
+        const c = colorOf.get(d.type) || '#888888';
+        col[i * 3]     = parseInt(c.slice(1, 3), 16) / 255;
+        col[i * 3 + 1] = parseInt(c.slice(3, 5), 16) / 255;
+        col[i * 3 + 2] = parseInt(c.slice(5, 7), 16) / 255;
+        d.events = eventsFor(d);
+        siz[i] = Math.min(9, SOUL_POINT_BASE + Math.log2(d.events + 1) * 0.85);
+    });
+
+    // Edges become chords. Endpoints go through the SAME fold as the nodes —
+    // skipping that is how the repo graph silently dropped every Thing-plane
+    // link for a day.
+    const seg = [];
+    let drawn = 0, dropped = 0;
+    edgeRows.forEach(e => {
+        const a = posOf.get(fileOfThing.get(e.from) || e.from);
+        const b = posOf.get(fileOfThing.get(e.target) || e.target);
+        if (a == null || b == null) { dropped++; return; }
+        seg.push(pos[a * 2], pos[a * 2 + 1], pos[b * 2], pos[b * 2 + 1]);
+        drawn++;
+    });
+
+    soul.nodes = docs;
+    soul.pos = pos; soul.col = col; soul.siz = siz;
+    soul.lines = new Float32Array(seg);
+    soul.edgeCount = drawn;
+    soul.stats = { docs: n, edges: drawn, droppedEdges: dropped, undated,
+                   commits: (maxB - minB + 1), minB, maxB };
+
+    // Uniform grid for hover picking. Positions never move, so this is built
+    // once and answers every mousemove in constant time.
+    soul.grid = new Map();
+    docs.forEach((d, i) => {
+        const k = Math.floor(d.x / soul.cell) + ',' + Math.floor(d.y / soul.cell);
+        const b = soul.grid.get(k);
+        if (b) b.push(i); else soul.grid.set(k, [i]);
+    });
+
+    soulRenderHud();
+}
+
+function soulRenderHud() {
+    const s = soul.stats;
+    const hud = document.getElementById('soul-hud');
+    const undatedNote = s.undated
+        ? ` · <span title="no assertion event found for these — they sit on the rim">${s.undated.toLocaleString()} undated</span>`
+        : '';
+    hud.innerHTML =
+        '<div class="soul-title">the whole soul</div>' +
+        `<div>${s.docs.toLocaleString()} documents · ${s.edges.toLocaleString()} links · ` +
+        `${s.commits.toLocaleString()} commits${undatedNote}</div>` +
+        '<div class="soul-sub">' + soul.classes.slice(0, 8).map(c =>
+            `<span style="color:${c.color}">■</span> ${c.name} ${c.count.toLocaleString()}`).join(' &nbsp; ') +
+        '</div>';
+    document.getElementById('soul-axis').textContent =
+        'centre = first commit · rim = today · one turn ≈ ' +
+        Math.round(s.commits / soul.turns).toLocaleString() +
+        ' commits · dot size = how often it changed · scroll to zoom, drag to pan';
+}
+
+function resizeSoulCanvas() {
+    if (!soul.canvas) return;
+    const rect = soul.canvas.getBoundingClientRect();
+    soul.dpr = window.devicePixelRatio || 1;
+    soul.W = rect.width; soul.H = rect.height;
+    soul.canvas.width = Math.max(1, Math.round(rect.width * soul.dpr));
+    soul.canvas.height = Math.max(1, Math.round(rect.height * soul.dpr));
+    if (soul.ready) soulDraw();
+}
+
+// ── renderer ────────────────────────────────────────────────────────────────
+// WebGL when it is there (1M points at 21ms, measured), 2D canvas when it is
+// not. The fallback is not decoration: a machine without WebGL2 should get a
+// slower picture, never a blank one.
+
+function soulInitRenderer() {
+    const gl = soul.canvas.getContext('webgl2', { antialias: true, alpha: false });
+    if (!gl) { soul.gl = null; soul.ctx2d = soul.canvas.getContext('2d'); return; }
+    soul.gl = gl;
+
+    const compile = (type, src) => {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src); gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+        return sh;
+    };
+    const link = (vs, fs) => {
+        const p = gl.createProgram();
+        gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+        gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+        return p;
+    };
+
+    const VIEW = 'uniform vec2 u_scale; uniform vec2 u_off;';
+    const pLine = link(
+        `#version 300 es
+         ${VIEW}
+         in vec2 p;
+         void main(){ gl_Position = vec4((p + u_off) * u_scale, 0.0, 1.0); }`,
+        `#version 300 es
+         precision mediump float; out vec4 o;
+         void main(){ o = vec4(0.10, 0.10, 0.12, 0.16); }`);
+    const pPoint = link(
+        `#version 300 es
+         ${VIEW}
+         uniform float u_pt;
+         in vec2 p; in vec3 c; in float s; out vec3 vc;
+         void main(){ vc = c; gl_PointSize = s * u_pt;
+                      gl_Position = vec4((p + u_off) * u_scale, 0.0, 1.0); }`,
+        `#version 300 es
+         precision mediump float; in vec3 vc; out vec4 o;
+         void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d);
+                      if (r > 0.25) discard;
+                      o = vec4(vc, 1.0 - smoothstep(0.15, 0.25, r)); }`);
+
+    const buf = data => {
+        const b = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, b);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+        return b;
+    };
+    soul.gpu = {
+        pLine, pPoint,
+        bLine: buf(soul.lines), bPos: buf(soul.pos), bCol: buf(soul.col), bSiz: buf(soul.siz),
+    };
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+}
+
+function soulDraw() {
+    if (!soul.ready) return;
+    const { scale, x, y } = soul.view;
+    // World is a unit disc; fit it to the short axis and leave a margin.
+    const aspect = soul.W / Math.max(1, soul.H);
+    const sx = (0.92 * scale) / (aspect > 1 ? aspect : 1);
+    const sy = (0.92 * scale) * (aspect < 1 ? aspect : 1);
+
+    if (soul.gl) {
+        const gl = soul.gl, g = soul.gpu;
+        gl.viewport(0, 0, soul.canvas.width, soul.canvas.height);
+        gl.clearColor(1, 1, 1, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        gl.useProgram(g.pLine);
+        gl.uniform2f(gl.getUniformLocation(g.pLine, 'u_scale'), sx, sy);
+        gl.uniform2f(gl.getUniformLocation(g.pLine, 'u_off'), x, y);
+        let loc = gl.getAttribLocation(g.pLine, 'p');
+        gl.bindBuffer(gl.ARRAY_BUFFER, g.bLine);
+        gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.LINES, 0, soul.edgeCount * 2);
+
+        gl.useProgram(g.pPoint);
+        gl.uniform2f(gl.getUniformLocation(g.pPoint, 'u_scale'), sx, sy);
+        gl.uniform2f(gl.getUniformLocation(g.pPoint, 'u_off'), x, y);
+        gl.uniform1f(gl.getUniformLocation(g.pPoint, 'u_pt'),
+                     soul.dpr * Math.min(3.5, Math.max(0.6, Math.sqrt(scale))));
+        loc = gl.getAttribLocation(g.pPoint, 'p');
+        gl.bindBuffer(gl.ARRAY_BUFFER, g.bPos);
+        gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+        let lc = gl.getAttribLocation(g.pPoint, 'c');
+        gl.bindBuffer(gl.ARRAY_BUFFER, g.bCol);
+        gl.enableVertexAttribArray(lc); gl.vertexAttribPointer(lc, 3, gl.FLOAT, false, 0, 0);
+        let ls = gl.getAttribLocation(g.pPoint, 's');
+        gl.bindBuffer(gl.ARRAY_BUFFER, g.bSiz);
+        gl.enableVertexAttribArray(ls); gl.vertexAttribPointer(ls, 1, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.POINTS, 0, soul.nodes.length);
+        return;
+    }
+
+    // 2D fallback
+    const c = soul.ctx2d;
+    c.setTransform(soul.dpr, 0, 0, soul.dpr, 0, 0);
+    c.clearRect(0, 0, soul.W, soul.H);
+    const toX = wx => (wx + x) * sx * soul.W / 2 + soul.W / 2;
+    const toY = wy => -(wy + y) * sy * soul.H / 2 + soul.H / 2;
+    c.strokeStyle = 'rgba(20,20,28,0.16)'; c.lineWidth = 1; c.beginPath();
+    for (let i = 0; i < soul.edgeCount; i++) {
+        c.moveTo(toX(soul.lines[i*4]), toY(soul.lines[i*4+1]));
+        c.lineTo(toX(soul.lines[i*4+2]), toY(soul.lines[i*4+3]));
+    }
+    c.stroke();
+    soul.nodes.forEach((d, i) => {
+        c.fillStyle = (soul.classes.find(k => k.uri === d.type) || {}).color || '#888';
+        c.beginPath();
+        c.arc(toX(d.x), toY(d.y), Math.max(1, soul.siz[i] / 2), 0, Math.PI * 2);
+        c.fill();
+    });
+}
+
+// ── input ───────────────────────────────────────────────────────────────────
+
+function soulScreenToWorld(clientX, clientY) {
+    const rect = soul.canvas.getBoundingClientRect();
+    const aspect = soul.W / Math.max(1, soul.H);
+    const sx = (0.92 * soul.view.scale) / (aspect > 1 ? aspect : 1);
+    const sy = (0.92 * soul.view.scale) * (aspect < 1 ? aspect : 1);
+    const ndcX = ((clientX - rect.left) / soul.W) * 2 - 1;
+    const ndcY = 1 - ((clientY - rect.top) / soul.H) * 2;
+    return { x: ndcX / sx - soul.view.x, y: ndcY / sy - soul.view.y };
+}
+
+function soulPick(wx, wy, radius) {
+    const cx = Math.floor(wx / soul.cell), cy = Math.floor(wy / soul.cell);
+    let best = null, bestD = radius * radius;
+    for (let ox = -1; ox <= 1; ox++) {
+        for (let oy = -1; oy <= 1; oy++) {
+            const bucket = soul.grid.get((cx + ox) + ',' + (cy + oy));
+            if (!bucket) continue;
+            for (const i of bucket) {
+                const d = soul.nodes[i];
+                const dx = d.x - wx, dy = d.y - wy;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < bestD) { bestD = d2; best = d; }
+            }
+        }
+    }
+    return best;
+}
+
+function soulBindInput() {
+    const cv = soul.canvas;
+    const readout = document.getElementById('soul-readout');
+
+    cv.addEventListener('wheel', e => {
+        e.preventDefault();
+        const before = soulScreenToWorld(e.clientX, e.clientY);
+        const d = Math.max(-40, Math.min(40, e.deltaY));
+        soul.view.scale = Math.max(0.4, Math.min(60, soul.view.scale * Math.exp(-d * 0.0025)));
+        const after = soulScreenToWorld(e.clientX, e.clientY);
+        // Keep the point under the cursor under the cursor.
+        soul.view.x += after.x - before.x;
+        soul.view.y += after.y - before.y;
+        soulDraw();
+    }, { passive: false });
+
+    cv.addEventListener('mousedown', e => {
+        soul.drag = { x: e.clientX, y: e.clientY, vx: soul.view.x, vy: soul.view.y };
+    });
+    window.addEventListener('mouseup', () => { soul.drag = null; });
+    cv.addEventListener('mousemove', e => {
+        if (soul.drag) {
+            const a = soulScreenToWorld(e.clientX, e.clientY);
+            const b = soulScreenToWorld(soul.drag.x, soul.drag.y);
+            soul.view.x = soul.drag.vx + (a.x - b.x);
+            soul.view.y = soul.drag.vy + (a.y - b.y);
+            soulDraw();
+            return;
+        }
+        // Hover. Pick radius shrinks as you zoom in, so a dense rim doesn't
+        // grab the cursor from three documents away.
+        const w = soulScreenToWorld(e.clientX, e.clientY);
+        const hit = soulPick(w.x, w.y, 0.012 / Math.sqrt(soul.view.scale));
+        if (!hit) { readout.hidden = true; return; }
+        const cls = soul.classes.find(k => k.uri === hit.type);
+        const when = hit.born == null ? 'undated' : ('born at commit ' + hit.born);
+        readout.hidden = false;
+        readout.innerHTML =
+            `<div>${hit.label}</div>` +
+            `<div class="soul-readout-type">${cls ? cls.name : shortName(hit.type)} · ${when} · ` +
+            `${hit.events} change${hit.events === 1 ? '' : 's'}</div>`;
+        const rect = cv.getBoundingClientRect();
+        readout.style.left = Math.min(rect.width - 340, e.clientX - rect.left + 14) + 'px';
+        readout.style.top = (e.clientY - rect.top + 14) + 'px';
+    });
+    cv.addEventListener('mouseleave', () => { readout.hidden = true; });
+    window.addEventListener('resize', () => { if (currentMode === 'soul') resizeSoulCanvas(); });
+}

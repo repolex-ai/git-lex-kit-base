@@ -909,3 +909,77 @@ nav.modes {
     width: 0%;
     transition: width 0.3s ease;
 }
+
+/* ────────────────────────────────────────────
+   Whole Soul — the view that has to survive a
+   soul fifty times bigger than the one it was
+   designed on. No labels: at 6,000 documents a
+   label is noise, and the shape IS the reading.
+   ──────────────────────────────────────────── */
+
+/* .view already positions this absolutely at inset 0 — re-declaring position
+   here made it a static block with auto height, which collapsed the canvas to
+   its default 300x150 and drew the whole soul as a thumbnail in the corner.
+   Only the padding needs overriding. */
+#view-soul {
+    padding: 0;
+    overflow: hidden;
+}
+
+#soul-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+}
+
+.soul-hud {
+    position: absolute;
+    left: 28px;
+    top: 24px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #111;
+    pointer-events: none;
+}
+
+.soul-hud .soul-title {
+    border-bottom: 1px solid #c0392b;
+    padding-bottom: 2px;
+}
+
+.soul-hud .soul-sub {
+    color: #666;
+    font-size: 11.5px;
+}
+
+.soul-axis {
+    position: absolute;
+    left: 28px;
+    bottom: 22px;
+    font-size: 11px;
+    color: #888;
+    pointer-events: none;
+}
+
+/* Hover readout. The one place a name appears in this view, and only for the
+   single document under the cursor — the alternative is 6,000 labels, which is
+   the same as none. */
+.soul-readout {
+    position: absolute;
+    padding: 6px 9px;
+    background: #fff;
+    border: 1px solid #111;
+    font-size: 11.5px;
+    line-height: 1.45;
+    max-width: 320px;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.soul-readout .soul-readout-type {
+    color: #666;
+    font-size: 10.5px;
+    text-transform: lowercase;
+}

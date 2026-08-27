@@ -11,6 +11,7 @@
         <nav class="modes">
             <a href="#activity" class="mode-link" data-mode="activity">Recent Activity</a>
             <a href="#graph" class="mode-link" data-mode="graph">Repo Graph</a>
+            <a href="#soul" class="mode-link" data-mode="soul">Whole Soul</a>
             <a href="#history" class="mode-link" data-mode="history">History</a>
         </nav>
         <div class="sidebar-footer">
@@ -36,6 +37,16 @@
             <div class="graph-md-viewer" id="graph-md-viewer" hidden></div>
         </section>
 
+
+        <!-- Whole Soul — every document at once, laid out by when it was born.
+             Deterministic layout (no simulation) + WebGL, so it holds at a
+             scale where the force graph cannot draw at all. -->
+        <section id="view-soul" class="view" hidden>
+            <canvas id="soul-canvas"></canvas>
+            <div class="soul-hud" id="soul-hud"></div>
+            <div class="soul-axis" id="soul-axis"></div>
+            <div class="soul-readout" id="soul-readout" hidden></div>
+        </section>
 
         <!-- History (animated knowledge graph through time) -->
         <section id="view-history" class="view" hidden>
