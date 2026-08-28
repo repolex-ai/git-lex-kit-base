@@ -28,7 +28,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.15.1" .
+    owl:versionInfo "0.16.0" .
 
 # v0.14 (2026-08-26, Rob-ruled): + git-lex:kitManaged — the flag that lets the
 #   kit RETRACT, which is the one thing it has never been able to do.
@@ -525,7 +525,14 @@ git-lex:relatedToId a owl:ObjectProperty ;
     rdfs:domain git-lex:Thing ;
     rdfs:range git-lex:Thing .
 
-# v0.15.1 (2026-08-28): REQUIRED IS ROLLED BACK — id is optional again. The
+# v0.16.0 (Rob-ruled 2026-08-28): git-lex:id is REQUIRED. Exactly one, on every
+# Thing. This re-lands 0.15.0 after git-lex 4d626dd fixed the validator: the
+# validation emitter was gluing the key's kit prefix onto the property name, so
+# `soul.Note.id` became soul:id and the shape's sh:path git-lex:id matched
+# nothing. The constraint was unsatisfiable by any authoring action. It resolves
+# the declared IRI now, so the published format satisfies the gate.
+#
+# v0.15.1, superseded: id was optional again. The
 # constraint was UNSATISFIABLE: 49 of 49 documents failed `id: MinCount(1) not
 # satisfied`, INCLUDING documents carrying a correct, bracketed, graph-resolved
 # id. The authored key lands on the THING node; the validator does not find it
@@ -547,7 +554,7 @@ git-lex:relatedToId a owl:ObjectProperty ;
 # backfill is mechanical with exactly one right answer, EXCEPT for a document
 # carrying no class id at all, which nothing can derive and a person must name.
 git-lex:Thing rdfs:subClassOf
-    [ a owl:Restriction ; owl:onProperty git-lex:id          ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:id          ; owl:cardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:title       ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:abstract    ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:description ; owl:maxCardinality 1 ] ,
