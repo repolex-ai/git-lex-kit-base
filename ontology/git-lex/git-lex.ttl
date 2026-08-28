@@ -28,7 +28,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.14.0" .
+    owl:versionInfo "0.15.0" .
 
 # v0.14 (2026-08-26, Rob-ruled): + git-lex:kitManaged — the flag that lets the
 #   kit RETRACT, which is the one thing it has never been able to do.
@@ -286,7 +286,8 @@ git-lex:File a owl:Class ;
 git-lex:fileId a owl:ObjectProperty ;
     rdfs:label "fileId" ;
     rdfs:comment "DERIVED, never authored: the File currently expressing this Thing, stamped by git-lex at save from the file's position, re-derived on move. Emitted as an IRI edge to the File node (git-lex/File/<path>) so Thing-to-File-to-links joins need no string surgery — the same house pattern as every ...Id reference: the NAME describes the id the value derives from (a File's id is its path), the GRAPH object is the resolved node. This is the one connection between the planes; 'where has this Thing lived' is its temporal history. Domain open: any Thing carries it." ;
-    rdfs:range git-lex:File .
+    rdfs:range git-lex:File ;
+    rdfs:domain git-lex:Thing .
 
 # --- The Thing plane: the class every authored entity is ---------------------
 # git-lex:File's counterpart. A File is an ADDRESS (id = repo-relative path,
@@ -352,7 +353,8 @@ git-lex:Thing a owl:Class ;
 git-lex:id a owl:ObjectProperty ;
     rdfs:label "id" ;
     rdfs:comment "AUTHORED — which Thing this document IS, written <namespace/Class/identifier>. Without it these facts bind to the file path and die on rename." ;
-    rdfs:domain git-lex:Thing .
+    rdfs:domain git-lex:Thing ;
+    rdfs:range git-lex:Thing .
 
 git-lex:title a owl:DatatypeProperty ;
     rdfs:label "title" ;
@@ -523,8 +525,17 @@ git-lex:relatedToId a owl:ObjectProperty ;
     rdfs:domain git-lex:Thing ;
     rdfs:range git-lex:Thing .
 
+# v0.15.0 (Rob-ruled 2026-08-28): git-lex:id is REQUIRED. Exactly one, on every
+# Thing. Rob: "It's not a big deal, it's running one subagent on your repo and
+# updating everything." The lockout is INTENDED — a soul cannot save until every
+# Thing declares which Thing it is. Until now id was optional and `create` only
+# began pre-filling it recently, so most documents were anchored by their
+# per-class id and bound to a filename convention instead of to a declared
+# identity. The value is fully derivable — <namespace/Class/<classId>> — so the
+# backfill is mechanical with exactly one right answer, EXCEPT for a document
+# carrying no class id at all, which nothing can derive and a person must name.
 git-lex:Thing rdfs:subClassOf
-    [ a owl:Restriction ; owl:onProperty git-lex:id          ; owl:maxCardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:id          ; owl:cardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:title       ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:abstract    ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:description ; owl:maxCardinality 1 ] ,
