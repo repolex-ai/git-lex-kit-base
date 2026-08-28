@@ -28,7 +28,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.15.0" .
+    owl:versionInfo "0.15.1" .
 
 # v0.14 (2026-08-26, Rob-ruled): + git-lex:kitManaged — the flag that lets the
 #   kit RETRACT, which is the one thing it has never been able to do.
@@ -525,7 +525,19 @@ git-lex:relatedToId a owl:ObjectProperty ;
     rdfs:domain git-lex:Thing ;
     rdfs:range git-lex:Thing .
 
-# v0.15.0 (Rob-ruled 2026-08-28): git-lex:id is REQUIRED. Exactly one, on every
+# v0.15.1 (2026-08-28): REQUIRED IS ROLLED BACK — id is optional again. The
+# constraint was UNSATISFIABLE: 49 of 49 documents failed `id: MinCount(1) not
+# satisfied`, INCLUDING documents carrying a correct, bracketed, graph-resolved
+# id. The authored key lands on the THING node; the validator does not find it
+# there. No authoring action could clear the gate, so every repo went write-dead.
+# My proof run ("45 backfilled, gate green") was real and tested the wrong thing:
+# it ran BEFORE kit-update, against 0.14.0 where id was optional. It proved the
+# VALUES were well-formed and never proved they satisfy the REQUIREMENT, because
+# I shipped the constraint and ran the proof in that order. Re-require only after
+# the validator resolves a bare `id` key to git-lex:id the way the live extractor
+# already does. The range and domain fixes below are correct and STAY.
+#
+# v0.15.0 (Rob-ruled 2026-08-28), superseded above: git-lex:id is REQUIRED. Exactly one, on every
 # Thing. Rob: "It's not a big deal, it's running one subagent on your repo and
 # updating everything." The lockout is INTENDED — a soul cannot save until every
 # Thing declares which Thing it is. Until now id was optional and `create` only
@@ -535,7 +547,7 @@ git-lex:relatedToId a owl:ObjectProperty ;
 # backfill is mechanical with exactly one right answer, EXCEPT for a document
 # carrying no class id at all, which nothing can derive and a person must name.
 git-lex:Thing rdfs:subClassOf
-    [ a owl:Restriction ; owl:onProperty git-lex:id          ; owl:cardinality 1 ] ,
+    [ a owl:Restriction ; owl:onProperty git-lex:id          ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:title       ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:abstract    ; owl:maxCardinality 1 ] ,
     [ a owl:Restriction ; owl:onProperty git-lex:description ; owl:maxCardinality 1 ] ,
