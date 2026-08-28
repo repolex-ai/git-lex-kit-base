@@ -347,11 +347,33 @@ async function loadClassCounts() {
         // Sample labels for this class from the now view. gl:name is the
         // canonical label under one-graph; the per-type predicate and
         // fm:title still win where they exist.
+        //
+        // The fm:title branch has to go through gl:fileId. An UNQUALIFIED
+        // frontmatter key (`title:` rather than `soul.Note.title:`) can't bind
+        // to a class property, so git-lex emits it under the fm/ fallback
+        // namespace attached to the FILE subject — never to the Thing. Asking
+        // `?thing fm:title ?label` therefore matches NOTHING, and since
+        // LABEL_PREDICATES only covers the git layer, every kit class fell
+        // through to a fallback that could not fire. Measured on this repo:
+        // 33 fm:title vs 4 gl:title, and gl:name on ONE subject in the whole
+        // store — so ~89% of the titles that exist were unreachable from the
+        // plane the query runs on. @tr1p measured 29 vs 5 on his.
+        //
+        // One hop fixes it, and the hop is the join that already defines the
+        // File/Thing relationship. Kept as a third UNION branch rather than a
+        // replacement: a Thing-plane title still wins where one exists.
         const samples = await sparql(`
             SELECT DISTINCT ?label WHERE {
                 GRAPH <${NOW_GRAPH}> {
                     ?s a <${uri}> .
-                    { ?s <${labelPred}> ?label } UNION { ?s <${GL_NAME}> ?label }
+                    {
+                        ?s <${labelPred}> ?label
+                    } UNION {
+                        ?s <${GL_NAME}> ?label
+                    } UNION {
+                        ?s <${GL_NS}fileId> ?labelFile .
+                        ?labelFile <${FM_TITLE}> ?label
+                    }
                 }
             }
             ORDER BY ?label
