@@ -28,7 +28,7 @@
 git-lex: a owl:Ontology ;
     rdfs:label "git-lex Core Ontology" ;
     rdfs:comment "The vocabulary git-lex authors about the markdown documents it tracks." ;
-    owl:versionInfo "0.16.0" .
+    owl:versionInfo "0.17.0" .
 
 # v0.14 (2026-08-26, Rob-ruled): + git-lex:kitManaged — the flag that lets the
 #   kit RETRACT, which is the one thing it has never been able to do.
@@ -397,6 +397,20 @@ git-lex:substrate a owl:DatatypeProperty ;
     rdfs:comment "The model that last saved this document, as its exact id (claude-fable-5). Maintained by git-lex on save — do not hand-edit or guess it." ;
     rdfs:domain git-lex:Thing ;
     rdfs:range xsd:string .
+
+# --- Universal Classes: Note and Skill ---------------------------------------
+
+git-lex:Note a owl:Class ;
+    rdfs:subClassOf git-lex:Thing ;
+    git-lex:foldered true ;
+    rdfs:label "Note" ;
+    rdfs:comment "The universal structured note: a scratchpad, capture, or thinking document with title, description, cues, tags, and links. Kit-specific notes (soul:Note, copia:Note, squad:Note) subclass this." .
+
+git-lex:Skill a owl:Class ;
+    rdfs:subClassOf git-lex:Thing ;
+    git-lex:foldered true ;
+    rdfs:label "Skill" ;
+    rdfs:comment "An executable skill definition with instructions, scripts, or resources projected into agent substrate harnesses. Kit-specific skills (soul:Skill, copia:Skill) subclass this." .
 
 # HOW TO WRITE A GOOD CUE — from the two seats that wrote the first twenty, both
 # arriving at the same test independently, three days after the field shipped.
