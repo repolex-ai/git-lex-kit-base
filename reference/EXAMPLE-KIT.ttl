@@ -134,7 +134,7 @@ What you have done to it, and when.
 
 # `rdfs:subClassOf git-lex:Thing` is REQUIRED, and it is the line people forget.
 # Without it the class is not a Thing, so none of the eight universal properties
-# (id, title, description, abstract, cue, relatedToId, dateCreated, dateUpdated)
+# (id, title, description, abstract, cue, relatedToId, createdDate, updatedDate)
 # apply to it.
 
 # -----------------------------------------------------------------------------
