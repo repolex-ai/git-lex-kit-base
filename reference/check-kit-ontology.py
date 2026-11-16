@@ -30,7 +30,10 @@ except ImportError:
     sys.exit("needs rdflib:  pip install rdflib")
 
 GITLEX = "https://repolex.ai/ontology/git-lex/"
+SUBTEXTURE = "https://repolex.ai/ontology/subtexture/"
 THING = URIRef(GITLEX + "Thing")
+SUBTEXTURE_THING = URIRef(SUBTEXTURE + "Thing")
+THING_ROOTS = {THING, SUBTEXTURE_THING}
 FOLDERED = URIRef(GITLEX + "foldered")
 GUIDANCE = URIRef(GITLEX + "authoringGuidance")
 
@@ -175,7 +178,7 @@ def check(path: str) -> None:
         # silently percent-encode.
         if name.endswith("Id") and ranges:
             r = ranges[0]
-            concrete = r != THING and not str(r).startswith(
+            concrete = r not in THING_ROOTS and not str(r).startswith(
                 "http://www.w3.org/2001/XMLSchema#"
             )
             # Match the ADDRESS SHAPE, not merely a "<". Comments legitimately
@@ -190,11 +193,11 @@ def check(path: str) -> None:
                     f"property {name}: range is {short(r)} (BARE-ID lane) but its "
                     f"comment shows a <bracketed> value. A bracketed value here "
                     f"does not error — it percent-encodes into the identifier. "
-                    f"Use rdfs:range git-lex:Thing, or fix the comment."
+                    f"Use rdfs:range subtexture:Thing (or git-lex:Thing), or fix the comment."
                 )
-            if r == THING and comments and not says_brackets:
+            if r in THING_ROOTS and comments and not says_brackets:
                 advice.append(
-                    f"property {name}: range is git-lex:Thing (address lane) but "
+                    f"property {name}: range is {short(r)} (address lane) but "
                     f"the comment does not show the <namespace/Class/id> form"
                 )
 
